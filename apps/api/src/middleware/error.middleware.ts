@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express'
 import { MongooseError } from 'mongoose'
+import { MulterError } from 'multer'
 import { ZodError } from 'zod'
 
 import { logger } from '../config/logger'
@@ -50,6 +51,16 @@ export function errorHandler(
 
   if (isDuplicateKeyError(error)) {
     sendError(res, 409, 'CONFLICT', 'Resource already exists')
+    return
+  }
+
+  if (error instanceof MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      sendError(res, 413, 'FILE_TOO_LARGE', 'PDF files must be 10 MB or smaller')
+      return
+    }
+
+    sendError(res, 400, 'UPLOAD_ERROR', 'File upload failed')
     return
   }
 

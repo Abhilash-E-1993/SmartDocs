@@ -7,9 +7,10 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev --workspace @smartdocs/api\" \"npm run dev --workspace @smartdocs/web\"",
+    "dev": "concurrently -k -n api,web,jobs -c blue,green,yellow \"npm run dev --workspace @smartdocs/api\" \"npm run dev --workspace @smartdocs/web\" \"npm run inngest --workspace @smartdocs/api\"",
     "dev:api": "npm run dev --workspace @smartdocs/api",
     "dev:web": "npm run dev --workspace @smartdocs/web",
+    "dev:inngest": "npm run inngest --workspace @smartdocs/api",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "format": "npm run format --workspaces --if-present",

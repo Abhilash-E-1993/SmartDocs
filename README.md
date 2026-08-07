@@ -10,7 +10,7 @@ SmartDocs is an AI-powered knowledge workspace inspired by NotebookLM. It transf
 
 This repository is a **monorepo** containing the frontend web application and the backend API server, developed independently inside the same repository.
 
-**Current status:** application foundation complete — Clerk authentication, user sync with MongoDB, dashboard, and full workspace management (create / rename / delete / switch). Document uploads, AI chat, sources and memory arrive in upcoming milestones.
+**Current status:** foundation, authentication, workspaces, and **source management with background processing** are complete — upload PDFs (drag & drop or browse), paste text/markdown, import websites (Firecrawl) and YouTube transcripts, then watch them process in real time until they are Ready. AI chat, RAG retrieval and memory arrive in upcoming milestones.
 
 ---
 
@@ -28,6 +28,10 @@ This repository is a **monorepo** containing the frontend web application and th
 | Backend        | Node.js, Express 5, TypeScript                    |
 | Database       | MongoDB + Mongoose                                |
 | Authentication | Clerk (`@clerk/clerk-react` + `@clerk/express`)   |
+| Background Jobs| Inngest (async source processing)                 |
+| File Storage   | Cloudinary (original PDFs)                        |
+| Uploads        | Multer (API) + React Dropzone (web)               |
+| Extraction     | pdf-parse, Firecrawl, YouTube Transcript          |
 | Validation     | Zod (shared frontend + backend)                   |
 | Logging        | Pino                                              |
 | Code Quality   | ESLint (flat config), Prettier                    |
@@ -75,6 +79,12 @@ Copy-Item apps/web/.env.example apps/web/.env
 | `MONGODB_URI`           | MongoDB connection string | `mongodb://localhost:27017/smartdocs` |
 | `CLERK_SECRET_KEY`      | Clerk secret key          | `sk_test_…`                           |
 | `CLERK_PUBLISHABLE_KEY` | Clerk publishable key     | `pk_test_…`                           |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name     | `your_cloud_name`                     |
+| `CLOUDINARY_API_KEY`    | Cloudinary API key        | `your_api_key`                        |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret     | `your_api_secret`                     |
+| `FIRECRAWL_API_KEY`     | Firecrawl API key         | `fc-…`                                |
+| `INNGEST_EVENT_KEY`     | Only for production       | _(empty in dev)_                      |
+| `INNGEST_SIGNING_KEY`   | Only for production       | _(empty in dev)_                      |
 
 #### `apps/web/.env`
 
@@ -95,6 +105,7 @@ npm run dev
 
 - Web: <http://localhost:5173>
 - API: <http://localhost:5000> (health check: <http://localhost:5000/health>)
+- Inngest dev server: <http://localhost:8288> (started automatically by `npm run dev`)
 
 ---
 
@@ -176,6 +187,17 @@ All protected routes require a Clerk session token (`Authorization: Bearer <toke
 | `GET`    | `/workspaces/:id` | Get one workspace (owner only)               |
 | `PATCH`  | `/workspaces/:id` | Rename a workspace                           |
 | `DELETE` | `/workspaces/:id` | Delete a workspace                           |
+| `GET`    | `/workspaces/:workspaceId/sources`         | List sources in a workspace      |
+| `POST`   | `/workspaces/:workspaceId/sources/pdf`     | Upload a PDF (multipart, ≤10 MB) |
+| `POST`   | `/workspaces/:workspaceId/sources/text`    | Add text or markdown content     |
+| `POST`   | `/workspaces/:workspaceId/sources/website` | Import a website via Firecrawl   |
+| `POST`   | `/workspaces/:workspaceId/sources/youtube` | Import a YouTube transcript      |
+| `GET`    | `/sources/:id`        | Source details (+ content preview)           |
+| `PATCH`  | `/sources/:id`        | Rename a source                              |
+| `DELETE` | `/sources/:id`        | Delete a source (+ chunks + stored PDF)      |
+| `POST`   | `/sources/:id/retry`  | Re-queue a failed source                     |
+
+Every source moves through `QUEUED → PROCESSING → INDEXING → READY` inside an Inngest background job (never blocking the API); failures land in `FAILED` with a stored, user-readable error and can be retried without re-uploading. The frontend polls active sources every 2 s via TanStack Query.
 
 On first sign-in, the frontend calls `GET /auth/me`; the backend verifies the Clerk token and creates the MongoDB user document if it does not exist yet.
 
@@ -191,6 +213,7 @@ Run from the **repository root**:
 | `npm run dev`          | Start API and web dev servers together       |
 | `npm run dev:api`      | Start only the API dev server                |
 | `npm run dev:web`      | Start only the web dev server                |
+| `npm run dev:inngest`  | Start only the Inngest dev server            |
 | `npm run build`        | Build both apps for production               |
 | `npm run lint`         | Lint both apps                               |
 | `npm run format`       | Format both apps with Prettier               |

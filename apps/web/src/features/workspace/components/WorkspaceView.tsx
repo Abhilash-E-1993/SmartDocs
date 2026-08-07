@@ -1,8 +1,7 @@
-import { Link } from '@tanstack/react-router'
-import { BookOpen, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { getRouteApi, Link } from '@tanstack/react-router'
+import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
-import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
 import { PageHeader } from '@/components/common/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -12,12 +11,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ChatSection } from '@/features/chat/components/ChatSection'
 import { DeleteWorkspaceDialog } from '@/features/workspace/components/DeleteWorkspaceDialog'
 import { WorkspaceDetailSkeleton } from '@/features/workspace/components/WorkspaceDetailSkeleton'
 import { WorkspaceFormDialog } from '@/features/workspace/components/WorkspaceFormDialog'
+import { SourcesSection } from '@/features/sources/components/SourcesSection'
 import { useWorkspace } from '@/features/workspace/hooks/useWorkspaces'
 import { getErrorMessage } from '@/lib/axios'
 import { formatDate } from '@/utils/formatDate'
+
+const routeApi = getRouteApi('/_app/workspaces/$workspaceId')
+
+type WorkspaceTab = 'sources' | 'chat'
 
 interface WorkspaceViewProps {
   workspaceId: string
@@ -27,6 +33,16 @@ export function WorkspaceView({ workspaceId }: WorkspaceViewProps) {
   const { data: workspace, isLoading, isError, error, refetch } = useWorkspace(workspaceId)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const search = routeApi.useSearch()
+  const navigate = routeApi.useNavigate()
+
+  const setTab = (tab: WorkspaceTab): void => {
+    void navigate({ search: (previous) => ({ ...previous, tab }), replace: true })
+  }
+
+  const setActiveChat = (chat: string | undefined): void => {
+    void navigate({ search: (previous) => ({ ...previous, chat }), replace: true })
+  }
 
   if (isLoading) {
     return <WorkspaceDetailSkeleton />
@@ -74,11 +90,29 @@ export function WorkspaceView({ workspaceId }: WorkspaceViewProps) {
         }
       />
 
-      <EmptyState
-        icon={BookOpen}
-        title="No sources yet"
-        description="This workspace is ready. Document uploads, websites, YouTube videos and AI chat arrive in the next milestone."
-      />
+      <Tabs
+        value={search.tab ?? 'sources'}
+        onValueChange={(value) => {
+          if (value === 'sources' || value === 'chat') {
+            setTab(value)
+          }
+        }}
+      >
+        <TabsList>
+          <TabsTrigger value="sources">Sources</TabsTrigger>
+          <TabsTrigger value="chat">Chat</TabsTrigger>
+        </TabsList>
+        <TabsContent value="sources">
+          <SourcesSection workspaceId={workspaceId} />
+        </TabsContent>
+        <TabsContent value="chat" forceMount className="data-[state=inactive]:hidden">
+          <ChatSection
+            workspaceId={workspaceId}
+            activeChatId={search.chat}
+            onSelectChat={setActiveChat}
+          />
+        </TabsContent>
+      </Tabs>
 
       <WorkspaceFormDialog
         mode="rename"

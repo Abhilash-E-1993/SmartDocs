@@ -84,3 +84,260 @@
     @apply bg-background font-sans text-foreground antialiased;
   }
 }
+
+/* Markdown typography (AI responses) */
+.md-body {
+  font-size: 0.875rem;
+  line-height: 1.75;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.md-body > :first-child {
+  margin-top: 0;
+}
+
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+
+.md-body p {
+  margin: 0.5rem 0;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  margin: 1rem 0 0.375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.md-body h1 {
+  font-size: 1.25rem;
+}
+
+.md-body h2 {
+  font-size: 1.125rem;
+}
+
+.md-body h3 {
+  font-size: 1rem;
+}
+
+.md-body h4 {
+  font-size: 0.875rem;
+}
+
+.md-body ul,
+.md-body ol {
+  margin: 0.5rem 0;
+  padding-left: 1.375rem;
+}
+
+.md-body ul {
+  list-style: disc;
+}
+
+.md-body ol {
+  list-style: decimal;
+}
+
+.md-body li {
+  margin: 0.25rem 0;
+}
+
+.md-body li::marker {
+  color: var(--muted-foreground);
+}
+
+.md-body li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.375rem;
+}
+
+.md-body input[type='checkbox'] {
+  margin-right: 0.375rem;
+  accent-color: var(--primary);
+}
+
+.md-body blockquote {
+  margin: 0.75rem 0;
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+}
+
+.md-body a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-body hr {
+  margin: 1rem 0;
+  border-color: var(--border);
+}
+
+.md-table-wrapper {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.md-body th,
+.md-body td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.375rem 0.75rem;
+  text-align: left;
+}
+
+.md-body tr:last-child td {
+  border-bottom: 0;
+}
+
+.md-body th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+.md-inline-code {
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--muted);
+  padding: 0.05rem 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+}
+
+.md-codeblock {
+  margin: 0.75rem 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.md-codeblock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.md-codeblock-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.6875rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--muted-foreground);
+  transition:
+    color 150ms,
+    background-color 150ms;
+}
+
+.md-codeblock-copy:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.md-codeblock-body {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.md-codeblock-body .shiki {
+  margin: 0;
+  background: transparent;
+}
+
+.dark .shiki,
+.dark .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+/* Streaming cursor */
+.streaming-cursor {
+  display: inline-block;
+  width: 0.5rem;
+  height: 1rem;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: var(--primary);
+  vertical-align: text-bottom;
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Typing indicator */
+.typing-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-0.25rem);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streaming-cursor,
+  .typing-dot {
+    animation: none;
+  }
+}

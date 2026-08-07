@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { Brain, FolderOpen, LayoutDashboard, MessageSquare, Settings } from 'lucide-react'
+import { Brain, LayoutDashboard, MessageSquare, Settings } from 'lucide-react'
 
 import { Logo } from '@/components/layout/Logo'
 import { UserMenu } from '@/components/layout/UserMenu'
@@ -11,7 +11,6 @@ interface AppSidebarProps {
 }
 
 const soonItems = [
-  { label: 'Sources', icon: FolderOpen },
   { label: 'Chats', icon: MessageSquare },
   { label: 'Memory', icon: Brain },
   { label: 'Settings', icon: Settings },

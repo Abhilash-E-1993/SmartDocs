@@ -2,7 +2,7 @@ import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 import type { ApiFailure } from '@/types/api'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5000'
 
 type TokenGetter = () => Promise<string | null>
 
@@ -10,6 +10,10 @@ let tokenGetter: TokenGetter | null = null
 
 export function setAuthTokenGetter(getter: TokenGetter): void {
   tokenGetter = getter
+}
+
+export async function getAuthToken(): Promise<string | null> {
+  return tokenGetter ? tokenGetter() : null
 }
 
 export class ApiRequestError extends Error {

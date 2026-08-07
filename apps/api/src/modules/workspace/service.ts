@@ -1,4 +1,10 @@
+import { cloudinaryService } from '../../services/cloudinary.service'
+import { pineconeService } from '../../services/pinecone.service'
 import { ApiError } from '../../utils/api-error'
+import { ChatModel } from '../chat/Chat'
+import { MessageModel } from '../chat/Message'
+import { SourceModel } from '../sources/Source'
+import { SourceChunkModel } from '../sources/SourceChunk'
 import { WorkspaceModel, type WorkspaceDocument } from './Workspace'
 
 async function listByOwner(ownerId: string): Promise<WorkspaceDocument[]> {
@@ -40,6 +46,20 @@ async function deleteForOwner(id: string, ownerId: string): Promise<void> {
   if (!deleted) {
     throw ApiError.notFound('Workspace not found')
   }
+
+  const sources = await SourceModel.find({ workspaceId: id })
+  const publicIds = sources.flatMap((source) =>
+    source.cloudinaryPublicId ? [source.cloudinaryPublicId] : [],
+  )
+
+  await Promise.all([
+    SourceChunkModel.deleteMany({ workspaceId: id }),
+    SourceModel.deleteMany({ workspaceId: id }),
+    ChatModel.deleteMany({ workspaceId: id }),
+    MessageModel.deleteMany({ workspaceId: id }),
+  ])
+  await pineconeService.deleteByWorkspace(id)
+  await Promise.all(publicIds.map((publicId) => cloudinaryService.deletePdf(publicId)))
 }
 
 export const workspaceService = {
