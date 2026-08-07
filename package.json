@@ -1,0 +1,25 @@
+{
+  "name": "smartdocs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SmartDocs - AI-powered knowledge workspace (monorepo)",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev --workspace @smartdocs/api\" \"npm run dev --workspace @smartdocs/web\"",
+    "dev:api": "npm run dev --workspace @smartdocs/api",
+    "dev:web": "npm run dev --workspace @smartdocs/web",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "format:check": "npm run format:check --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10"
+  }
+}

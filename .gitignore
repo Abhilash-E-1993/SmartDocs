@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+dist-ssr/
+
+# Environment variables (never commit real .env files)
+.env
+.env.*
+!**/.env.example
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS / Editor
+.DS_Store
+Thumbs.db
