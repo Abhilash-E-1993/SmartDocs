@@ -33,7 +33,7 @@ export function ChatComposer({
   return (
     <div className="px-1 pb-1">
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-sm transition-colors focus-within:border-ring">
+        <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-foreground/25 focus-within:border-ring/70 focus-within:shadow-md focus-within:ring-4 focus-within:ring-ring/10">
           <Textarea
             value={value}
             onChange={(event) => setValue(event.target.value)}

@@ -16,6 +16,8 @@ import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AuthLoginRouteImport } from './routes/_auth.login'
 import { Route as AuthSignupRouteImport } from './routes/_auth.signup'
 import { Route as AppWorkspacesWorkspaceIdRouteImport } from './routes/_app.workspaces.$workspaceId'
+import { Route as AuthLoginSplatRouteImport } from './routes/_auth.login.$'
+import { Route as AuthSignupSplatRouteImport } from './routes/_auth.signup.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -51,20 +53,34 @@ const AppWorkspacesWorkspaceIdRoute =
     path: '/workspaces/$workspaceId',
     getParentRoute: () => AppRoute,
   } as any)
+const AuthLoginSplatRoute = AuthLoginSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => AuthLoginRoute,
+} as any)
+const AuthSignupSplatRoute = AuthSignupSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => AuthSignupRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof AppDashboardRoute
-  '/login': typeof AuthLoginRoute
-  '/signup': typeof AuthSignupRoute
+  '/login': typeof AuthLoginRouteWithChildren
+  '/signup': typeof AuthSignupRouteWithChildren
   '/workspaces/$workspaceId': typeof AppWorkspacesWorkspaceIdRoute
+  '/login/$': typeof AuthLoginSplatRoute
+  '/signup/$': typeof AuthSignupSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof AppDashboardRoute
-  '/login': typeof AuthLoginRoute
-  '/signup': typeof AuthSignupRoute
+  '/login': typeof AuthLoginRouteWithChildren
+  '/signup': typeof AuthSignupRouteWithChildren
   '/workspaces/$workspaceId': typeof AppWorkspacesWorkspaceIdRoute
+  '/login/$': typeof AuthLoginSplatRoute
+  '/signup/$': typeof AuthSignupSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -72,16 +88,31 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_auth': typeof AuthRouteWithChildren
   '/_app/dashboard': typeof AppDashboardRoute
-  '/_auth/login': typeof AuthLoginRoute
-  '/_auth/signup': typeof AuthSignupRoute
+  '/_auth/login': typeof AuthLoginRouteWithChildren
+  '/_auth/signup': typeof AuthSignupRouteWithChildren
   '/_app/workspaces/$workspaceId': typeof AppWorkspacesWorkspaceIdRoute
+  '/_auth/login/$': typeof AuthLoginSplatRoute
+  '/_auth/signup/$': typeof AuthSignupSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/dashboard' | '/login' | '/signup' | '/workspaces/$workspaceId'
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/signup'
+    | '/workspaces/$workspaceId'
+    | '/login/$'
+    | '/signup/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/login' | '/signup' | '/workspaces/$workspaceId'
+  to:
+    | '/'
+    | '/dashboard'
+    | '/login'
+    | '/signup'
+    | '/workspaces/$workspaceId'
+    | '/login/$'
+    | '/signup/$'
   id:
     | '__root__'
     | '/'
@@ -91,6 +122,8 @@ export interface FileRouteTypes {
     | '/_auth/login'
     | '/_auth/signup'
     | '/_app/workspaces/$workspaceId'
+    | '/_auth/login/$'
+    | '/_auth/signup/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -150,6 +183,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspacesWorkspaceIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_auth/login/$': {
+      id: '/_auth/login/$'
+      path: '/$'
+      fullPath: '/login/$'
+      preLoaderRoute: typeof AuthLoginSplatRouteImport
+      parentRoute: typeof AuthLoginRoute
+    }
+    '/_auth/signup/$': {
+      id: '/_auth/signup/$'
+      path: '/$'
+      fullPath: '/signup/$'
+      preLoaderRoute: typeof AuthSignupSplatRouteImport
+      parentRoute: typeof AuthSignupRoute
+    }
   }
 }
 
@@ -165,14 +212,38 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface AuthLoginRouteChildren {
+  AuthLoginSplatRoute: typeof AuthLoginSplatRoute
+}
+
+const AuthLoginRouteChildren: AuthLoginRouteChildren = {
+  AuthLoginSplatRoute: AuthLoginSplatRoute,
+}
+
+const AuthLoginRouteWithChildren = AuthLoginRoute._addFileChildren(
+  AuthLoginRouteChildren,
+)
+
+interface AuthSignupRouteChildren {
+  AuthSignupSplatRoute: typeof AuthSignupSplatRoute
+}
+
+const AuthSignupRouteChildren: AuthSignupRouteChildren = {
+  AuthSignupSplatRoute: AuthSignupSplatRoute,
+}
+
+const AuthSignupRouteWithChildren = AuthSignupRoute._addFileChildren(
+  AuthSignupRouteChildren,
+)
+
 interface AuthRouteChildren {
-  AuthLoginRoute: typeof AuthLoginRoute
-  AuthSignupRoute: typeof AuthSignupRoute
+  AuthLoginRoute: typeof AuthLoginRouteWithChildren
+  AuthSignupRoute: typeof AuthSignupRouteWithChildren
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
-  AuthLoginRoute: AuthLoginRoute,
-  AuthSignupRoute: AuthSignupRoute,
+  AuthLoginRoute: AuthLoginRouteWithChildren,
+  AuthSignupRoute: AuthSignupRouteWithChildren,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)

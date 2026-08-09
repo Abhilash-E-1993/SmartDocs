@@ -1,5 +1,5 @@
 import { MoreHorizontal, Pencil, RotateCcw, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -20,9 +20,10 @@ import { formatDate } from '@/utils/formatDate'
 interface SourceCardProps {
   source: Source
   onOpenDetails: (source: Source) => void
+  style?: CSSProperties
 }
 
-export function SourceCard({ source, onOpenDetails }: SourceCardProps) {
+export function SourceCard({ source, onOpenDetails, style }: SourceCardProps) {
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
@@ -35,13 +36,14 @@ export function SourceCard({ source, onOpenDetails }: SourceCardProps) {
       <Card
         role="button"
         tabIndex={0}
+        style={style}
         onClick={() => onOpenDetails(source)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             onOpenDetails(source)
           }
         }}
-        className="group relative cursor-pointer gap-3 p-4 transition-all hover:border-foreground/20 hover:shadow-sm"
+        className="group animate-enter relative cursor-pointer gap-3 p-4 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
@@ -92,10 +94,17 @@ export function SourceCard({ source, onOpenDetails }: SourceCardProps) {
         </div>
 
         {source.status === 'FAILED' && source.errorMessage ? (
-          <p className="line-clamp-2 text-xs text-destructive">{source.errorMessage}</p>
+          <p className="line-clamp-2 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1.5 text-xs leading-relaxed text-destructive">
+            {source.errorMessage}
+          </p>
         ) : null}
 
-        {isActive ? <div className="h-1 w-full animate-pulse rounded-full bg-primary/20" /> : null}
+        {isActive ? (
+          <div
+            aria-hidden="true"
+            className="processing-bar h-1 w-full rounded-full bg-primary/10"
+          />
+        ) : null}
       </Card>
 
       <RenameSourceDialog source={source} open={renameOpen} onOpenChange={setRenameOpen} />

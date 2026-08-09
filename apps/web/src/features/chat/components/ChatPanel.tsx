@@ -1,4 +1,4 @@
-import { ArrowLeft, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -60,7 +60,8 @@ export function ChatPanel({
       />
 
       {streamState?.error ? (
-        <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive animate-in fade-in slide-in-from-top-1 duration-200">
+          <AlertCircle className="size-4 shrink-0" />
           <span className="min-w-0 flex-1">{streamState.error}</span>
           <Button
             variant="ghost"

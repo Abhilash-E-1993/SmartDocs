@@ -34,8 +34,11 @@ export function AppSidebar({ onNavigate }: AppSidebarProps) {
           to="/dashboard"
           onClick={onNavigate}
           activeOptions={{ exact: true }}
-          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors"
-          activeProps={{ className: 'bg-accent text-accent-foreground' }}
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150"
+          activeProps={{
+            className: 'bg-accent text-accent-foreground',
+            'aria-current': 'page',
+          }}
           inactiveProps={{
             className: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
           }}

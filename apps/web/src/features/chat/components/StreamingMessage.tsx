@@ -5,8 +5,9 @@ import { TypingIndicator } from '@/features/chat/components/TypingIndicator'
 import type { ChatStreamStage } from '@/types/chat'
 
 const STAGE_LABELS: Record<ChatStreamStage, string> = {
-  rewriting: 'Understanding your question…',
+  rewriting: 'Planning the search…',
   searching: 'Searching your sources…',
+  ranking: 'Ranking the best passages…',
   generating: 'Writing the answer…',
   verifying: 'Verifying the answer…',
   retrying: 'Improving the answer…',
@@ -19,9 +20,9 @@ interface StreamingMessageProps {
 
 export function StreamingMessage({ stage, content }: StreamingMessageProps) {
   return (
-    <div className="flex gap-3">
-      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Sparkles className="size-3.5 animate-pulse text-muted-foreground" />
+    <div className="animate-enter flex gap-3">
+      <div className="stream-avatar mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border/60">
+        <Sparkles className="size-3.5 text-muted-foreground" />
       </div>
 
       <div className="min-w-0 flex-1">
@@ -33,14 +34,22 @@ export function StreamingMessage({ stage, content }: StreamingMessageProps) {
         ) : (
           <div className="flex items-center gap-3 rounded-lg py-1">
             <TypingIndicator />
-            <span className="text-sm text-muted-foreground">
+            <span
+              key={stage ?? 'thinking'}
+              className="text-sm text-muted-foreground animate-in fade-in duration-200"
+            >
               {stage ? STAGE_LABELS[stage] : 'Thinking…'}
             </span>
           </div>
         )}
 
         {content && stage && stage !== 'generating' ? (
-          <p className="mt-2 text-xs text-muted-foreground">{STAGE_LABELS[stage]}</p>
+          <p
+            key={stage}
+            className="mt-2 text-xs text-muted-foreground animate-in fade-in duration-200"
+          >
+            {STAGE_LABELS[stage]}
+          </p>
         ) : null}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { logger } from '../../config/logger'
 import { inngest } from '../../jobs/client'
 import { cloudinaryService } from '../../services/cloudinary.service'
 import { pineconeService } from '../../services/pinecone.service'
@@ -40,7 +41,11 @@ async function dispatchProcessing(source: SourceDocument): Promise<void> {
       name: PROCESS_EVENTS[source.sourceType],
       data: { sourceId: source._id.toString() },
     })
-  } catch {
+  } catch (error) {
+    logger.warn(
+      { err: error, sourceId: source._id.toString() },
+      'Failed to dispatch the processing job (is the Inngest dev server running?)',
+    )
     await markFailed(source._id.toString(), 'Failed to queue the processing job')
     throw ApiError.serviceUnavailable('Processing queue is not available')
   }
@@ -234,7 +239,7 @@ async function setExtractedMetadata(id: string, metadata: { pageCount?: number }
 async function storeChunks(
   id: string,
   cleanedText: string,
-  chunks: TextChunk[],
+  chunks: Array<TextChunk & { contextSummary?: string }>,
 ): Promise<SourceChunkDocument[]> {
   const source = await getById(id)
 
@@ -251,6 +256,7 @@ async function storeChunks(
             chunkIndex: chunk.chunkIndex,
             startOffset: chunk.startOffset,
             content: chunk.content,
+            contextSummary: chunk.contextSummary,
           })),
         )
       : []

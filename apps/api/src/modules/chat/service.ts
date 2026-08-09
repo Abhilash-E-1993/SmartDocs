@@ -1,7 +1,12 @@
 import { ApiError } from '../../utils/api-error'
 import { workspaceService } from '../workspace/service'
 import { ChatModel, DEFAULT_CHAT_TITLE, type ChatDocument } from './Chat'
-import { MessageModel, type IMessageCitation, type MessageDocument, type MessageRole } from './Message'
+import {
+  MessageModel,
+  type IMessageCitation,
+  type MessageDocument,
+  type MessageRole,
+} from './Message'
 
 const HISTORY_LIMIT = 10
 
@@ -28,11 +33,7 @@ async function createForOwner(
   return ChatModel.create({ workspaceId, ownerId, title: title?.trim() || DEFAULT_CHAT_TITLE })
 }
 
-async function renameForOwner(
-  id: string,
-  ownerId: string,
-  title: string,
-): Promise<ChatDocument> {
+async function renameForOwner(id: string, ownerId: string, title: string): Promise<ChatDocument> {
   const chat = await ChatModel.findOneAndUpdate(
     { _id: id, ownerId },
     { title },

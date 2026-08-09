@@ -33,7 +33,8 @@ export interface Chat {
   updatedAt: string
 }
 
-export type ChatStreamStage = 'rewriting' | 'searching' | 'generating' | 'verifying' | 'retrying'
+export type ChatStreamStage =
+  'rewriting' | 'searching' | 'ranking' | 'generating' | 'verifying' | 'retrying'
 
 export type ChatStreamEvent =
   | {

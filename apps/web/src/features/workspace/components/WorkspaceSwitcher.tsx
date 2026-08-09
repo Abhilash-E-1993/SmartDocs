@@ -36,13 +36,20 @@ export function WorkspaceSwitcher({ onSwitched }: WorkspaceSwitcherProps) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-full justify-between">
+          <Button variant="outline" className="w-full justify-start gap-2">
             {isLoading ? (
               <Skeleton className="h-4 w-24" />
             ) : (
-              <span className="truncate">{activeWorkspace?.name ?? 'Select workspace'}</span>
+              <>
+                {activeWorkspace ? (
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold text-muted-foreground">
+                    {activeWorkspace.name.charAt(0).toUpperCase()}
+                  </span>
+                ) : null}
+                <span className="truncate">{activeWorkspace?.name ?? 'Select workspace'}</span>
+              </>
             )}
-            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+            <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
@@ -50,8 +57,13 @@ export function WorkspaceSwitcher({ onSwitched }: WorkspaceSwitcherProps) {
           <DropdownMenuSeparator />
           {workspaces?.map((workspace) => (
             <DropdownMenuItem key={workspace.id} onSelect={() => openWorkspace(workspace.id)}>
+              <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold">
+                {workspace.name.charAt(0).toUpperCase()}
+              </span>
               <span className="flex-1 truncate">{workspace.name}</span>
-              {workspace.id === params.workspaceId ? <Check className="size-4" /> : null}
+              {workspace.id === params.workspaceId ? (
+                <Check className="size-4 text-foreground" />
+              ) : null}
             </DropdownMenuItem>
           ))}
           {workspaces?.length === 0 ? (

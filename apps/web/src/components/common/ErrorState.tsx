@@ -22,17 +22,19 @@ export function ErrorState({
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-lg border border-destructive/20 bg-destructive/5 px-6 py-16 text-center',
+        'animate-enter flex flex-col items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 px-6 py-16 text-center',
         className,
       )}
     >
-      <div className="flex size-12 items-center justify-center rounded-full bg-destructive/10">
-        <AlertCircle className="size-6 text-destructive" />
+      <div className="flex size-12 items-center justify-center rounded-2xl border border-destructive/20 bg-card shadow-xs">
+        <AlertCircle className="size-5 text-destructive" />
       </div>
-      <h3 className="mt-4 text-sm font-semibold">{title}</h3>
-      {message ? <p className="mt-1 max-w-sm text-sm text-muted-foreground">{message}</p> : null}
+      <h3 className="mt-5 text-base font-semibold tracking-tight">{title}</h3>
+      {message ? (
+        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">{message}</p>
+      ) : null}
       {onRetry || action ? (
-        <div className="mt-6 flex items-center gap-2">
+        <div className="mt-7 flex items-center gap-2">
           {onRetry ? (
             <Button variant="outline" size="sm" onClick={onRetry}>
               Try again

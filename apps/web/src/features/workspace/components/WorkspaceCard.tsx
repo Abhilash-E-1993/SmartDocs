@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,9 +18,10 @@ import { formatDate } from '@/utils/formatDate'
 
 interface WorkspaceCardProps {
   workspace: Workspace
+  style?: CSSProperties
 }
 
-export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
+export function WorkspaceCard({ workspace, style }: WorkspaceCardProps) {
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const isOptimistic = workspace.id.startsWith('optimistic-')
@@ -28,15 +29,16 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
   return (
     <>
       <Card
+        style={style}
         className={cn(
-          'group relative transition-all hover:border-foreground/20 hover:shadow-sm',
+          'group animate-enter relative transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md',
           isOptimistic && 'pointer-events-none opacity-60',
         )}
       >
         <Link
           to="/workspaces/$workspaceId"
           params={{ workspaceId: workspace.id }}
-          className="absolute inset-0 z-0 rounded-xl"
+          className="absolute inset-0 z-0 rounded-xl focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           aria-label={workspace.name}
         />
         <CardHeader>

@@ -4,8 +4,8 @@ export interface TextChunk {
   content: string
 }
 
-const DEFAULT_MAX_CHARS = 1000
-const DEFAULT_OVERLAP = 150
+const DEFAULT_MAX_CHARS = 1200
+const DEFAULT_OVERLAP = 200
 
 function findBreakPoint(windowText: string, minBreak: number): number {
   const paragraphBreak = windowText.lastIndexOf('\n\n')

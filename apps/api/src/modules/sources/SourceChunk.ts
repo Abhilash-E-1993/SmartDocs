@@ -10,6 +10,7 @@ export interface ISourceChunk {
   chunkIndex: number
   startOffset: number
   content: string
+  contextSummary?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -25,6 +26,7 @@ const sourceChunkSchema = new Schema<ISourceChunk>(
     chunkIndex: { type: Number, required: true },
     startOffset: { type: Number, required: true },
     content: { type: String, required: true },
+    contextSummary: { type: String },
   },
   { timestamps: true },
 )

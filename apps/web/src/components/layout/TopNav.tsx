@@ -28,11 +28,13 @@ export function TopNav({ onMenuClick, onCommandClick }: TopNavProps) {
         <Menu className="size-4" />
       </Button>
 
-      <nav className="flex min-w-0 items-center gap-1.5 text-sm">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
         <span className={activeWorkspace ? 'text-muted-foreground' : 'font-medium'}>Dashboard</span>
         {activeWorkspace ? (
           <>
-            <span className="text-muted-foreground/60">/</span>
+            <span aria-hidden="true" className="text-muted-foreground/40">
+              /
+            </span>
             <span className="truncate font-medium">{activeWorkspace.name}</span>
           </>
         ) : null}

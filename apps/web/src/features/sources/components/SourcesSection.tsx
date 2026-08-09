@@ -102,8 +102,13 @@ export function SourcesSection({ workspaceId }: SourcesSectionProps) {
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sources?.map((source) => (
-            <SourceCard key={source.id} source={source} onOpenDetails={setDetailsSource} />
+          {sources?.map((source, index) => (
+            <SourceCard
+              key={source.id}
+              source={source}
+              onOpenDetails={setDetailsSource}
+              style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
+            />
           ))}
         </div>
       )}

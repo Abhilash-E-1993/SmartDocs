@@ -1,12 +1,8 @@
-import { Brain, ShieldCheck, Sparkles } from 'lucide-react'
+import { Brain, Check, Copy, ShieldCheck, Sparkles } from 'lucide-react'
+import { memo, useEffect, useRef, useState } from 'react'
 
 import { Markdown } from '@/components/markdown/Markdown'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { CitationList } from '@/features/citations/components/CitationList'
 import type { ChatCitation, ChatMessage } from '@/types/chat'
 
@@ -15,23 +11,51 @@ interface ChatMessageItemProps {
   onCitationClick: (citation: ChatCitation) => void
 }
 
-export function ChatMessageItem({ message, onCitationClick }: ChatMessageItemProps) {
+export const ChatMessageItem = memo(function ChatMessageItem({
+  message,
+  onCitationClick,
+}: ChatMessageItemProps) {
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-primary-foreground sm:max-w-[75%]">
+      <div className="animate-enter flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-primary-foreground shadow-xs sm:max-w-[75%]">
           {message.content}
         </div>
       </div>
     )
   }
 
+  return <AssistantMessage message={message} onCitationClick={onCitationClick} />
+})
+
+function AssistantMessage({ message, onCitationClick }: ChatMessageItemProps) {
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) {
+        clearTimeout(copyTimer.current)
+      }
+    }
+  }, [])
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      copyTimer.current = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+
   const verified = message.verificationScore !== null && message.verificationScore >= 8
   const personalized = message.memories.length > 0
 
   return (
-    <div className="flex gap-3">
-      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
+    <div className="group animate-enter flex gap-3">
+      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border/60">
         <Sparkles className="size-3.5 text-muted-foreground" />
       </div>
 
@@ -77,6 +101,18 @@ export function ChatMessageItem({ message, onCitationClick }: ChatMessageItemPro
             </div>
           </TooltipProvider>
         ) : null}
+
+        <div className="mt-1 flex items-center gap-1 transition-opacity duration-150 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            aria-label={copied ? 'Answer copied' : 'Copy answer'}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
     </div>
   )

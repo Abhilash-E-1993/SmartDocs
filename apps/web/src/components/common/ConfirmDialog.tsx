@@ -33,7 +33,7 @@ export function ConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-destructive/10">
+          <div className="mb-2 flex size-10 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/10">
             <AlertTriangle className="size-5 text-destructive" />
           </div>
           <DialogTitle>{title}</DialogTitle>

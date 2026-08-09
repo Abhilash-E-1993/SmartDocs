@@ -38,8 +38,12 @@ export function DashboardView() {
         />
       ) : workspaces && workspaces.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {workspaces.map((workspace) => (
-            <WorkspaceCard key={workspace.id} workspace={workspace} />
+          {workspaces.map((workspace, index) => (
+            <WorkspaceCard
+              key={workspace.id}
+              workspace={workspace}
+              style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
+            />
           ))}
         </div>
       ) : (

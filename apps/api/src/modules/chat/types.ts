@@ -66,7 +66,8 @@ export function toChatResponse(chat: ChatDocument): ChatResponse {
   }
 }
 
-export type ChatStreamStage = 'rewriting' | 'searching' | 'generating' | 'verifying' | 'retrying'
+export type ChatStreamStage =
+  'rewriting' | 'searching' | 'ranking' | 'generating' | 'verifying' | 'retrying'
 
 export type ChatStreamEvent =
   | {

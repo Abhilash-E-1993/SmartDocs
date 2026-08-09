@@ -26,7 +26,7 @@ export function CitationList({ citations, onSelect }: CitationListProps) {
             key={citation.sourceId}
             type="button"
             onClick={() => onSelect(citation)}
-            className="inline-flex max-w-56 items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="inline-flex max-w-56 items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-xs transition-[border-color,color,box-shadow] duration-150 hover:border-foreground/20 hover:text-foreground hover:shadow-sm"
           >
             <meta.icon className="size-3 shrink-0" />
             <span className="truncate">{citation.sourceTitle}</span>

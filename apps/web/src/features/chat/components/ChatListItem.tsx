@@ -32,8 +32,8 @@ export function ChatListItem({ chat, active, onSelect, onRename, onDelete }: Cha
         }
       }}
       className={cn(
-        'group flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors',
-        active ? 'border-border bg-accent' : 'border-transparent hover:bg-accent/60',
+        'group flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+        active ? 'border-border bg-accent shadow-xs' : 'border-transparent hover:bg-accent/60',
       )}
     >
       <div className="min-w-0 flex-1">

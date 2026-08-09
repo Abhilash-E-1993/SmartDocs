@@ -17,7 +17,7 @@ export function UploadingCard({ item, onCancel, onRetry, onDismiss }: UploadingC
   return (
     <Card
       className={cn(
-        'gap-3 p-4 transition-all',
+        'animate-enter gap-3 p-4 transition-[border-color,box-shadow] duration-200',
         item.status === 'error' && 'border-destructive/30 bg-destructive/5',
         item.status === 'success' && 'border-emerald-500/30',
       )}
@@ -31,7 +31,7 @@ export function UploadingCard({ item, onCancel, onRetry, onDismiss }: UploadingC
           )}
         >
           {item.status === 'success' ? (
-            <CheckCircle2 className="size-4 text-emerald-500" />
+            <CheckCircle2 className="animate-pop size-4 text-emerald-500" />
           ) : (
             <FileText className="size-4 text-muted-foreground" />
           )}

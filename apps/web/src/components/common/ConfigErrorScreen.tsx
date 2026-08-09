@@ -11,10 +11,10 @@ const steps = [
 
 export function ConfigErrorScreen() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6">
+    <div className="animate-enter flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6">
       <Logo />
-      <div className="w-full max-w-md space-y-4 rounded-lg border bg-card p-6">
-        <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+      <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-6 shadow-sm">
+        <div className="flex size-10 items-center justify-center rounded-xl border bg-muted">
           <KeyRound className="size-5 text-muted-foreground" />
         </div>
         <div className="space-y-1">

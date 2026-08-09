@@ -32,8 +32,17 @@ function getWorkspaceId(req: Request): string {
 }
 
 function getTopK(req: Request): number | undefined {
-  const { topK } = req.query as { topK?: number }
-  return topK
+  const raw = Array.isArray(req.query.topK) ? req.query.topK[0] : req.query.topK
+  if (typeof raw !== 'string') {
+    return undefined
+  }
+
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 20) {
+    return undefined
+  }
+
+  return parsed
 }
 
 export const chatController = {
