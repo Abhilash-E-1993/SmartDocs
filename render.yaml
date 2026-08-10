@@ -1,0 +1,45 @@
+# Render Blueprint — deploys the SmartDocs API as a web service.
+# Dashboard: New → Blueprint → pick this repo (or create the service
+# manually with the same settings below).
+services:
+  - type: web
+    name: smartdocs-api
+    runtime: node
+    plan: free
+    # Monorepo: install + build run from the repo root so npm workspaces
+    # resolve correctly, then start the compiled API directly.
+    buildCommand: npm install && npm run build --workspace @smartdocs/api
+    startCommand: node apps/api/dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PINECONE_INDEX_NAME
+        value: smartdocs
+      # Secrets — fill these in the Render dashboard (Environment tab):
+      - key: MONGODB_URI
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: MEM0_API_KEY
+        sync: false
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: INNGEST_SIGNING_KEY
+        sync: false
