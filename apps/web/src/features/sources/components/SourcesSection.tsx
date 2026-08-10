@@ -1,15 +1,14 @@
-import { LibraryBig, Plus } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { toast } from 'sonner'
 
-import { EmptyState } from '@/components/common/EmptyState'
 import { ErrorState } from '@/components/common/ErrorState'
 import { Button } from '@/components/ui/button'
 import { AddSourceDialog } from '@/features/sources/components/AddSourceDialog'
 import { DropOverlay } from '@/features/sources/components/DropOverlay'
-import { SourceCard } from '@/features/sources/components/SourceCard'
 import { SourceDetailsSheet } from '@/features/sources/components/SourceDetailsSheet'
+import { SourceListItem } from '@/features/sources/components/SourceListItem'
 import { SourcesSkeleton } from '@/features/sources/components/SourcesSkeleton'
 import { UploadingCard } from '@/features/sources/components/UploadingCard'
 import { usePdfUploads } from '@/features/sources/hooks/usePdfUploads'
@@ -49,69 +48,82 @@ export function SourcesSection({ workspaceId }: SourcesSectionProps) {
   const isEmpty = !isLoading && !isError && sources?.length === 0 && uploads.items.length === 0
 
   return (
-    <section {...getRootProps()} className="relative space-y-4 outline-none">
+    <section {...getRootProps()} className="relative flex h-full min-h-0 flex-col outline-none">
       <input {...getInputProps()} />
       {isDragActive ? <DropOverlay /> : null}
 
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">
+      <div className="flex h-12 items-center justify-between gap-2 border-b px-3.5">
+        <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           Sources
           {sources && sources.length > 0 ? (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">{sources.length}</span>
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
+              {sources.length}
+            </span>
           ) : null}
         </h2>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          onClick={() => setAddOpen(true)}
+          aria-label="Add source"
+        >
           <Plus className="size-4" />
-          Add source
         </Button>
       </div>
 
-      {uploads.items.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {uploads.items.map((item) => (
-            <UploadingCard
-              key={item.localId}
-              item={item}
-              onCancel={uploads.cancel}
-              onRetry={uploads.retry}
-              onDismiss={uploads.dismiss}
-            />
-          ))}
-        </div>
-      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {uploads.items.length > 0 ? (
+          <div className="mb-2 space-y-2">
+            {uploads.items.map((item) => (
+              <UploadingCard
+                key={item.localId}
+                item={item}
+                onCancel={uploads.cancel}
+                onRetry={uploads.retry}
+                onDismiss={uploads.dismiss}
+              />
+            ))}
+          </div>
+        ) : null}
 
-      {isLoading ? (
-        <SourcesSkeleton />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load sources"
-          message={getErrorMessage(error)}
-          onRetry={() => void refetch()}
-        />
-      ) : isEmpty ? (
-        <EmptyState
-          icon={LibraryBig}
-          title="No sources yet"
-          description="Add PDFs, text, markdown, websites or YouTube videos — or drop a PDF anywhere on this page."
-          action={
-            <Button onClick={() => setAddOpen(true)}>
-              <Plus className="size-4" />
-              Add your first source
-            </Button>
-          }
-        />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sources?.map((source, index) => (
-            <SourceCard
-              key={source.id}
-              source={source}
-              onOpenDetails={setDetailsSource}
-              style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
-            />
-          ))}
-        </div>
-      )}
+        {isLoading ? (
+          <SourcesSkeleton />
+        ) : isError ? (
+          <ErrorState
+            title="Could not load sources"
+            message={getErrorMessage(error)}
+            onRetry={() => void refetch()}
+            className="border-0 bg-transparent px-2 py-10"
+          />
+        ) : isEmpty ? (
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="animate-enter group flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-10 text-center transition-colors duration-150 hover:border-foreground/30 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+          >
+            <span className="flex size-10 items-center justify-center rounded-xl bg-foreground text-background shadow-sm transition-transform duration-200 group-hover:scale-105">
+              <Upload className="size-5" />
+            </span>
+            <span className="mt-4 text-sm font-semibold tracking-tight">No sources yet</span>
+            <span className="mt-1 max-w-56 text-xs leading-relaxed text-muted-foreground">
+              Drop PDFs here, or click to add text, links or videos
+            </span>
+          </button>
+        ) : (
+          <div className="space-y-0.5">
+            {sources?.map((source) => (
+              <SourceListItem key={source.id} source={source} onOpenDetails={setDetailsSource} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t px-3.5 py-2.5">
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Upload className="size-3" />
+          Drop PDFs on this panel · up to 10 MB
+        </p>
+      </div>
 
       <AddSourceDialog
         workspaceId={workspaceId}

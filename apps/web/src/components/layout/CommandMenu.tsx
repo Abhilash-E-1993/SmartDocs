@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
-import { FolderPlus, LayoutDashboard, MessageSquare, Sparkles } from 'lucide-react'
+import { FolderPlus, LayoutDashboard } from 'lucide-react'
 import { useState } from 'react'
 
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/command'
 import { WorkspaceFormDialog } from '@/features/workspace/components/WorkspaceFormDialog'
 import { useWorkspaces } from '@/features/workspace/hooks/useWorkspaces'
+import { WorkspaceAvatar } from '@/components/common/WorkspaceAvatar'
 
 interface CommandMenuProps {
   open: boolean
@@ -66,24 +67,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                       })
                     }}
                   >
-                    {workspace.name}
+                    <WorkspaceAvatar name={workspace.name} className="size-5 rounded text-[10px]" />
+                    <span className="truncate">{workspace.name}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>
             </>
           ) : null}
-
-          <CommandSeparator />
-          <CommandGroup heading="Coming soon">
-            <CommandItem disabled>
-              <MessageSquare className="size-4" />
-              Ask your documents
-            </CommandItem>
-            <CommandItem disabled>
-              <Sparkles className="size-4" />
-              AI summaries
-            </CommandItem>
-          </CommandGroup>
         </CommandList>
       </CommandDialog>
 

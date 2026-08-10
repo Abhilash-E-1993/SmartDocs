@@ -1,4 +1,4 @@
-import { ArrowDown, Sparkles } from 'lucide-react'
+import { ArrowDown, Bot } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { ErrorState } from '@/components/common/ErrorState'
@@ -95,6 +95,16 @@ export function ChatMessageList({
   const streamingHere = streamState !== null && streamState.chatId === chatId
   const showEmpty = !isLoading && !isError && messageCount === 0 && !streamingHere
 
+  // The server persists the user message the moment streaming starts, so once
+  // the messages query catches up it already ends with that message — rendering
+  // the optimistic question bubble on top would show the question twice.
+  const lastMessage = messages?.[messages.length - 1]
+  const questionPersisted =
+    streamingHere &&
+    streamState.question !== null &&
+    lastMessage?.role === 'user' &&
+    lastMessage.content === streamState.question
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div
@@ -135,9 +145,9 @@ export function ChatMessageList({
               />
             ))}
 
-            {streamingHere && streamState.question ? (
+            {streamingHere && streamState.question && !questionPersisted ? (
               <div className="animate-enter flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-primary-foreground shadow-xs sm:max-w-[75%]">
+                <div className="user-bubble max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap sm:max-w-[75%]">
                   {streamState.question}
                 </div>
               </div>
@@ -150,7 +160,7 @@ export function ChatMessageList({
             {showEmpty ? (
               <div className="animate-enter flex flex-col items-center justify-center py-16 text-center">
                 <div className="flex size-11 items-center justify-center rounded-2xl border bg-card shadow-xs">
-                  <Sparkles className="size-5 text-muted-foreground" />
+                  <Bot className="size-5 text-muted-foreground" />
                 </div>
                 <p className="mt-4 text-sm font-medium">No messages yet</p>
                 <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">

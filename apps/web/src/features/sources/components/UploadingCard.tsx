@@ -19,19 +19,18 @@ export function UploadingCard({ item, onCancel, onRetry, onDismiss }: UploadingC
       className={cn(
         'animate-enter gap-3 p-4 transition-[border-color,box-shadow] duration-200',
         item.status === 'error' && 'border-destructive/30 bg-destructive/5',
-        item.status === 'success' && 'border-emerald-500/30',
+        item.status === 'success' && 'border-foreground/20',
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <div
           className={cn(
             'flex size-9 shrink-0 items-center justify-center rounded-md bg-muted',
-            item.status === 'success' && 'bg-emerald-500/10',
             item.status === 'error' && 'bg-destructive/10',
           )}
         >
           {item.status === 'success' ? (
-            <CheckCircle2 className="animate-pop size-4 text-emerald-500" />
+            <CheckCircle2 className="animate-pop size-4 text-foreground" />
           ) : (
             <FileText className="size-4 text-muted-foreground" />
           )}

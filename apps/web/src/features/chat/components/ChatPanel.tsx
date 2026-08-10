@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowLeft, X } from 'lucide-react'
+import { AlertCircle, History, MessageSquarePlus, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,8 @@ interface ChatPanelProps {
   streamState: ChatStreamState | null
   onSend: (content: string) => void
   onStop: () => void
-  onBack: () => void
+  onOpenList: () => void
+  onNewChat: () => void
   onDismissError: () => void
 }
 
@@ -25,7 +26,8 @@ export function ChatPanel({
   streamState,
   onSend,
   onStop,
-  onBack,
+  onOpenList,
+  onNewChat,
   onDismissError,
 }: ChatPanelProps) {
   const { data: messages, isLoading, isError, error, refetch } = useChatMessages(chatId)
@@ -35,17 +37,17 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-2 border-b px-1 pt-1 pb-3">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onBack}
-          aria-label="Back to chats"
-          className="md:hidden"
-        >
-          <ArrowLeft className="size-4" />
+      <header className="flex items-center gap-1.5 border-b px-1 pt-1 pb-3">
+        <Button variant="ghost" size="icon-sm" onClick={onOpenList} aria-label="Chat history">
+          <History className="size-4" />
         </Button>
-        <h3 className="truncate text-sm font-semibold tracking-tight">{title}</h3>
+        <h3 className="min-w-0 flex-1 truncate px-1 text-base font-semibold tracking-tight">
+          {title}
+        </h3>
+        <Button variant="outline" size="sm" onClick={onNewChat} className="mr-1 shrink-0">
+          <MessageSquarePlus className="size-4" />
+          New chat
+        </Button>
       </header>
 
       <ChatMessageList
@@ -75,7 +77,7 @@ export function ChatPanel({
         </div>
       ) : null}
 
-      <ChatComposer streaming={streaming} onSend={onSend} onStop={onStop} />
+      <ChatComposer streaming={streaming} autoFocus onSend={onSend} onStop={onStop} />
 
       <CitationPanel citation={citation} onClose={() => setCitation(null)} />
     </div>

@@ -1,4 +1,4 @@
-import { Brain, Check, Copy, ShieldCheck, Sparkles } from 'lucide-react'
+import { Bot, Brain, Check, Copy, ShieldCheck } from 'lucide-react'
 import { memo, useEffect, useRef, useState } from 'react'
 
 import { Markdown } from '@/components/markdown/Markdown'
@@ -18,7 +18,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({
   if (message.role === 'user') {
     return (
       <div className="animate-enter flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap text-primary-foreground shadow-xs sm:max-w-[75%]">
+        <div className="user-bubble max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap sm:max-w-[75%]">
           {message.content}
         </div>
       </div>
@@ -55,8 +55,8 @@ function AssistantMessage({ message, onCitationClick }: ChatMessageItemProps) {
 
   return (
     <div className="group animate-enter flex gap-3">
-      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border/60">
-        <Sparkles className="size-3.5 text-muted-foreground" />
+      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+        <Bot className="size-3.5" />
       </div>
 
       <div className="min-w-0 flex-1">
@@ -76,7 +76,7 @@ function AssistantMessage({ message, onCitationClick }: ChatMessageItemProps) {
               {verified ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <span className="inline-flex items-center gap-1 rounded-full border bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                       <ShieldCheck className="size-3" />
                       Verified
                     </span>

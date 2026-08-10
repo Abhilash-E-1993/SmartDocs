@@ -1,4 +1,4 @@
-import { MessageSquare, Plus } from 'lucide-react'
+import { MessageSquarePlus, MessagesSquare, X } from 'lucide-react'
 import { useState } from 'react'
 
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
@@ -22,7 +22,7 @@ interface ChatListProps {
   activeChatId: string | undefined
   onSelectChat: (chatId: string) => void
   onNewChat: () => void
-  creating: boolean
+  onClose?: () => void
 }
 
 export function ChatList({
@@ -35,7 +35,7 @@ export function ChatList({
   activeChatId,
   onSelectChat,
   onNewChat,
-  creating,
+  onClose,
 }: ChatListProps) {
   const deleteChat = useDeleteChat(workspaceId)
   const [renaming, setRenaming] = useState<Chat | null>(null)
@@ -57,23 +57,32 @@ export function ChatList({
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold tracking-tight">
+        <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight">
           Chats
           {chats && chats.length > 0 ? (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">{chats.length}</span>
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
+              {chats.length}
+            </span>
           ) : null}
         </h3>
-        <Button size="sm" variant="outline" onClick={onNewChat} disabled={creating}>
-          <Plus className="size-4" />
-          {creating ? 'Creating…' : 'New chat'}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" onClick={onNewChat}>
+            <MessageSquarePlus className="size-4" />
+            New chat
+          </Button>
+          {onClose ? (
+            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close chat list">
+              <X className="size-4" />
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         {isLoading ? (
           <div className="space-y-2">
             {['a', 'b', 'c'].map((key) => (
-              <Skeleton key={key} className="h-14 w-full rounded-lg" />
+              <Skeleton key={key} className="h-14 w-full rounded-xl" />
             ))}
           </div>
         ) : isError ? (
@@ -97,15 +106,19 @@ export function ChatList({
           </div>
         ) : (
           <EmptyState
-            icon={MessageSquare}
+            icon={MessagesSquare}
             title="No chats yet"
-            description="Start a conversation and ask questions about your sources."
+            description="Type your first question — the chat is created the moment you send it."
             className="py-10"
           />
         )}
       </div>
 
-      <RenameChatDialog chat={renaming} workspaceId={workspaceId} onOpenChange={() => setRenaming(null)} />
+      <RenameChatDialog
+        chat={renaming}
+        workspaceId={workspaceId}
+        onOpenChange={() => setRenaming(null)}
+      />
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => {

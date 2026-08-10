@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -32,10 +32,21 @@ export function ChatListItem({ chat, active, onSelect, onRename, onDelete }: Cha
         }
       }}
       className={cn(
-        'group flex w-full cursor-pointer items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+        'group flex w-full cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
         active ? 'border-border bg-accent shadow-xs' : 'border-transparent hover:bg-accent/60',
       )}
     >
+      <span
+        className={cn(
+          'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+          active
+            ? 'bg-foreground text-background shadow-sm'
+            : 'bg-muted text-muted-foreground group-hover:text-foreground',
+        )}
+      >
+        <MessageSquare className="size-3.5" />
+      </span>
+
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{chat.title}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -51,7 +62,7 @@ export function ChatListItem({ chat, active, onSelect, onRename, onDelete }: Cha
             size="icon-xs"
             aria-label="Chat actions"
             onClick={(event) => event.stopPropagation()}
-            className="mt-0.5 transition-opacity focus-visible:opacity-100 data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            className="transition-opacity focus-visible:opacity-100 data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100"
           >
             <MoreHorizontal className="size-4" />
           </Button>

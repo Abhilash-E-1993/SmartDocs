@@ -1,4 +1,4 @@
-import { Sparkles } from 'lucide-react'
+import { Bot } from 'lucide-react'
 
 import { Markdown } from '@/components/markdown/Markdown'
 import { TypingIndicator } from '@/features/chat/components/TypingIndicator'
@@ -21,8 +21,8 @@ interface StreamingMessageProps {
 export function StreamingMessage({ stage, content }: StreamingMessageProps) {
   return (
     <div className="animate-enter flex gap-3">
-      <div className="stream-avatar mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border/60">
-        <Sparkles className="size-3.5 text-muted-foreground" />
+      <div className="stream-avatar mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+        <Bot className="size-3.5" />
       </div>
 
       <div className="min-w-0 flex-1">

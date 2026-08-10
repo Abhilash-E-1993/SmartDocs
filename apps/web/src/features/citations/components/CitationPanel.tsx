@@ -38,8 +38,8 @@ export function CitationPanel({ citation, onClose }: CitationPanelProps) {
             </div>
             <SheetTitle className="text-base leading-snug">{citation.sourceTitle}</SheetTitle>
             <SheetDescription>
-              Chunk position {citation.chunkIndex + 1} · Relevance {Math.round(citation.score * 100)}
-              %
+              Chunk position {citation.chunkIndex + 1} · Relevance{' '}
+              {Math.round(citation.score * 100)}%
             </SheetDescription>
           </SheetHeader>
 

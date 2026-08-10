@@ -30,14 +30,14 @@ export function PdfDropArea({ onFiles }: PdfDropAreaProps) {
     <div
       {...getRootProps()}
       className={cn(
-        'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center transition-colors',
+        'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-10 text-center transition-colors',
         'hover:border-foreground/30 hover:bg-muted/50',
-        isDragActive && 'border-primary bg-primary/5',
+        isDragActive && 'border-foreground/50 bg-muted/60',
       )}
     >
       <input {...getInputProps()} />
-      <div className="flex size-10 items-center justify-center rounded-full bg-muted">
-        <Upload className="size-5 text-muted-foreground" />
+      <div className="flex size-10 items-center justify-center rounded-xl bg-foreground text-background shadow-sm">
+        <Upload className="size-5" />
       </div>
       <p className="text-sm font-medium">
         {isDragActive ? 'Drop PDFs here' : 'Drag & drop PDFs here, or click to browse'}

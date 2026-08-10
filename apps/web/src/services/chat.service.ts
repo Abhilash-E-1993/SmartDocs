@@ -74,7 +74,11 @@ export const chatService = {
     return data.data
   },
 
-  async streamMessage(chatId: string, content: string, options: StreamMessageOptions): Promise<void> {
+  async streamMessage(
+    chatId: string,
+    content: string,
+    options: StreamMessageOptions,
+  ): Promise<void> {
     const token = await getAuthToken()
     const topK = options.topK ?? DEFAULT_TOP_K
 

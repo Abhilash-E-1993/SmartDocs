@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { WorkspaceAvatar } from '@/components/common/WorkspaceAvatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WorkspaceFormDialog } from '@/features/workspace/components/WorkspaceFormDialog'
 import { useWorkspaces } from '@/features/workspace/hooks/useWorkspaces'
@@ -42,9 +43,10 @@ export function WorkspaceSwitcher({ onSwitched }: WorkspaceSwitcherProps) {
             ) : (
               <>
                 {activeWorkspace ? (
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold text-muted-foreground">
-                    {activeWorkspace.name.charAt(0).toUpperCase()}
-                  </span>
+                  <WorkspaceAvatar
+                    name={activeWorkspace.name}
+                    className="size-5 rounded text-[10px]"
+                  />
                 ) : null}
                 <span className="truncate">{activeWorkspace?.name ?? 'Select workspace'}</span>
               </>
@@ -57,9 +59,7 @@ export function WorkspaceSwitcher({ onSwitched }: WorkspaceSwitcherProps) {
           <DropdownMenuSeparator />
           {workspaces?.map((workspace) => (
             <DropdownMenuItem key={workspace.id} onSelect={() => openWorkspace(workspace.id)}>
-              <span className="flex size-5 shrink-0 items-center justify-center rounded bg-muted text-[10px] font-semibold">
-                {workspace.name.charAt(0).toUpperCase()}
-              </span>
+              <WorkspaceAvatar name={workspace.name} className="size-5 rounded text-[10px]" />
               <span className="flex-1 truncate">{workspace.name}</span>
               {workspace.id === params.workspaceId ? (
                 <Check className="size-4 text-foreground" />

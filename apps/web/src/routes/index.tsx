@@ -2,6 +2,7 @@ import { useAuth } from '@clerk/clerk-react'
 import { createFileRoute, Navigate } from '@tanstack/react-router'
 
 import { FullPageLoader } from '@/components/common/FullPageLoader'
+import { LandingPage } from '@/features/landing/components/LandingPage'
 
 export const Route = createFileRoute('/')({
   component: IndexPage,
@@ -14,5 +15,9 @@ function IndexPage() {
     return <FullPageLoader />
   }
 
-  return <Navigate to={isSignedIn ? '/dashboard' : '/login'} />
+  if (isSignedIn) {
+    return <Navigate to="/dashboard" />
+  }
+
+  return <LandingPage />
 }

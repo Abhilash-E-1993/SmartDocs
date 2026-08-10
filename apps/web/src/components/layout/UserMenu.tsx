@@ -26,8 +26,8 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent">
-          <Avatar className="size-8">
+        <button className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-accent">
+          <Avatar className="size-8 ring-1 ring-border/60">
             <AvatarImage src={user.imageUrl} alt={name ?? email} />
             <AvatarFallback className="text-xs">{getInitials(name, email)}</AvatarFallback>
           </Avatar>

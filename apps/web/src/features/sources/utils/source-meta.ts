@@ -36,18 +36,18 @@ export const SOURCE_STATUS_META: Record<SourceStatus, StatusMeta> = {
   },
   PROCESSING: {
     label: 'Processing',
-    className: 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    dotClassName: 'bg-amber-500',
+    className: 'border-border bg-muted text-muted-foreground',
+    dotClassName: 'bg-muted-foreground',
   },
   INDEXING: {
     label: 'Indexing',
-    className: 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    dotClassName: 'bg-amber-500',
+    className: 'border-border bg-muted text-muted-foreground',
+    dotClassName: 'bg-muted-foreground',
   },
   READY: {
     label: 'Ready',
-    className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    dotClassName: 'bg-emerald-500',
+    className: 'border-foreground/20 bg-foreground/5 text-foreground',
+    dotClassName: 'bg-foreground',
   },
   FAILED: {
     label: 'Failed',

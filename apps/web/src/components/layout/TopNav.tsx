@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router'
-import { Menu, Search } from 'lucide-react'
+import { ChevronRight, Menu, Search } from 'lucide-react'
 
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
 import { Button } from '@/components/ui/button'
@@ -28,13 +28,11 @@ export function TopNav({ onMenuClick, onCommandClick }: TopNavProps) {
         <Menu className="size-4" />
       </Button>
 
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-sm">
         <span className={activeWorkspace ? 'text-muted-foreground' : 'font-medium'}>Dashboard</span>
         {activeWorkspace ? (
           <>
-            <span aria-hidden="true" className="text-muted-foreground/40">
-              /
-            </span>
+            <ChevronRight aria-hidden="true" className="size-3.5 text-muted-foreground/40" />
             <span className="truncate font-medium">{activeWorkspace.name}</span>
           </>
         ) : null}
@@ -43,19 +41,15 @@ export function TopNav({ onMenuClick, onCommandClick }: TopNavProps) {
         ) : null}
       </nav>
 
-      <div className="ml-auto flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          className="hidden text-muted-foreground sm:inline-flex"
+      <div className="ml-auto flex items-center gap-1.5">
+        <button
+          type="button"
           onClick={onCommandClick}
+          className="hidden h-8 w-44 items-center gap-2 rounded-lg border bg-muted/50 px-2.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground sm:flex lg:w-52"
         >
-          <Search className="size-3.5" />
-          <span>Search</span>
-          <kbd className="pointer-events-none ml-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium">
-            ⌘K
-          </kbd>
-        </Button>
+          <Search className="size-3.5 shrink-0" />
+          <span className="flex-1 text-left text-[13px]">Search…</span>
+        </button>
         <Button
           variant="ghost"
           size="icon"
