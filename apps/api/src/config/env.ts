@@ -6,6 +6,7 @@ interface Env {
   NODE_ENV: string
   PORT: number
   CLIENT_URL: string
+  CLIENT_URLS: string[]
   MONGODB_URI: string | undefined
   CLERK_SECRET_KEY: string | undefined
   CLERK_PUBLISHABLE_KEY: string | undefined
@@ -20,10 +21,18 @@ interface Env {
   MEM0_API_KEY: string | undefined
 }
 
+// Comma-separated list of frontend origins allowed by CORS
+// (e.g. "https://app.vercel.app,https://staging.vercel.app" in production).
+const clientUrls = (process.env.CLIENT_URL ?? 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean)
+
 export const env: Env = {
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   PORT: Number(process.env.PORT ?? 5000),
-  CLIENT_URL: process.env.CLIENT_URL ?? 'http://localhost:5173',
+  CLIENT_URL: clientUrls[0] ?? 'http://localhost:5173',
+  CLIENT_URLS: clientUrls,
   MONGODB_URI: process.env.MONGODB_URI,
   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
   CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY,

@@ -18,7 +18,17 @@ import { workspaceRouter } from './modules/workspace/routes'
 const app: Express = express()
 
 app.use(pinoHttp({ logger }))
-app.use(cors({ origin: env.CLIENT_URL, credentials: true }))
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Requests without an Origin header (health checks, Inngest, server-to-
+      // server, curl) are not subject to CORS — let them through. Browsers
+      // must come from one of the configured frontend origins.
+      callback(null, !origin || env.CLIENT_URLS.includes(origin))
+    },
+    credentials: true,
+  }),
+)
 app.use(express.json({ limit: '1mb' }))
 app.use(clerkSession)
 

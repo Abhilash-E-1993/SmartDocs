@@ -4,6 +4,9 @@
   "private": true,
   "description": "SmartDocs API server",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "inngest": "inngest-cli dev -u http://localhost:5000/api/inngest",
