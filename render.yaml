@@ -6,10 +6,11 @@ services:
     name: smartdocs-api
     runtime: node
     plan: free
-    # Monorepo: install + build run from the repo root so npm workspaces
-    # resolve correctly, then start the compiled API directly.
-    buildCommand: npm install && npm run build --workspace @smartdocs/api
-    startCommand: node apps/api/dist/server.js
+    # Monorepo: install only the API workspace (skips heavy web deps), then
+    # run TypeScript directly via tsx — no compile step, so free-tier builds
+    # can't run out of memory.
+    buildCommand: npm install --workspace @smartdocs/api
+    startCommand: npm run start --workspace @smartdocs/api
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

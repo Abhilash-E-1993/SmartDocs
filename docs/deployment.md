@@ -20,9 +20,12 @@ Supporting services: **MongoDB Atlas** (database), **Inngest Cloud** (background
 
 1. Push this repo to GitHub, then <https://dashboard.render.com> → **New → Web Service** → connect the repo. (A ready-made `render.yaml` Blueprint exists at the repo root if you prefer **New → Blueprint** instead.)
 2. Settings — **leave Root Directory empty** (the monorepo builds from the root via npm workspaces):
-   - **Build Command:** `npm install && npm run build --workspace @smartdocs/api`
-   - **Start Command:** `node apps/api/dist/server.js`
+   - **Build Command:** `npm install --workspace @smartdocs/api`
+   - **Start Command:** `npm run start --workspace @smartdocs/api`
    - **Health Check Path:** `/health`
+
+   > The API runs TypeScript directly via `tsx` in production — there is **no compile step**. This is deliberate: `tsc` (mongoose/openai type graphs) exceeds the Render free tier's 512 MB build memory and crashes with `heap out of memory`.
+
 3. Add environment variables (Environment tab):
 
    | Key                                                                                                              | Value                                                                            |
