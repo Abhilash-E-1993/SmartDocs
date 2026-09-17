@@ -15,7 +15,11 @@ import { RenameSourceDialog } from '@/features/sources/components/RenameSourceDi
 import { SourceStatusBadge } from '@/features/sources/components/SourceStatusBadge'
 import { useRetrySource } from '@/features/sources/hooks/useRetrySource'
 import { useSource } from '@/features/sources/hooks/useSources'
-import { SOURCE_TYPE_META } from '@/features/sources/utils/source-meta'
+import {
+  ACTIVE_SOURCE_STATUSES,
+  SOURCE_STATUS_META,
+  SOURCE_TYPE_META,
+} from '@/features/sources/utils/source-meta'
 import type { Source } from '@/types/source'
 import { fileSize } from '@/utils/fileSize'
 import { formatDate } from '@/utils/formatDate'
@@ -40,6 +44,8 @@ export function SourceDetailsSheet({ source, open, onOpenChange }: SourceDetails
   const typeMeta = SOURCE_TYPE_META[display.sourceType]
   const TypeIcon = typeMeta.icon
   const externalUrl = display.metadata.url ?? detail?.cloudinaryUrl ?? null
+  const isActive = ACTIVE_SOURCE_STATUSES.includes(display.status)
+  const progress = Math.max(3, Math.min(100, Math.round(display.progress ?? 0)))
 
   return (
     <>
@@ -63,6 +69,26 @@ export function SourceDetailsSheet({ source, open, onOpenChange }: SourceDetails
               {isLoading ? <Skeleton className="h-4 w-24" /> : null}
             </div>
 
+            {isActive ? (
+              <div className="space-y-1.5">
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress}
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                >
+                  <div
+                    className="h-full rounded-full bg-primary/80 transition-[width] duration-700 ease-out"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {SOURCE_STATUS_META[display.status].label}… {progress}%
+                </p>
+              </div>
+            ) : null}
+
             {display.status === 'FAILED' && display.errorMessage ? (
               <div className="space-y-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
                 <p className="text-xs font-medium text-destructive">Processing failed</p>
@@ -76,6 +102,16 @@ export function SourceDetailsSheet({ source, open, onOpenChange }: SourceDetails
                   <RotateCcw className="size-3" />
                   Retry processing
                 </Button>
+              </div>
+            ) : null}
+
+            {display.topic ? (
+              <div className="space-y-1 rounded-lg border bg-muted/40 p-3">
+                <p className="text-xs font-medium text-muted-foreground">Topic</p>
+                <p className="text-sm font-medium">{display.topic}</p>
+                {display.topicSummary ? (
+                  <p className="text-xs text-muted-foreground">{display.topicSummary}</p>
+                ) : null}
               </div>
             ) : null}
 

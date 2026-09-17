@@ -14,6 +14,9 @@ export interface SourceResponse {
   title: string
   status: SourceStatus
   errorMessage: string | null
+  topic: string | null
+  topicSummary: string | null
+  progress: number
   chunkCount: number
   characterCount: number
   metadata: SourceMetadataResponse
@@ -42,6 +45,9 @@ export function toSourceResponse(source: SourceDocument): SourceResponse {
     title: source.title,
     status: source.status,
     errorMessage: source.errorMessage ?? null,
+    topic: source.topic ?? null,
+    topicSummary: source.topicSummary ?? null,
+    progress: source.progress ?? 0,
     chunkCount: source.chunkCount,
     characterCount: source.characterCount,
     metadata: {

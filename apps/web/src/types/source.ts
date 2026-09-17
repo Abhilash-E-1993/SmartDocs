@@ -16,6 +16,9 @@ export interface Source {
   title: string
   status: SourceStatus
   errorMessage: string | null
+  topic: string | null
+  topicSummary: string | null
+  progress: number
   chunkCount: number
   characterCount: number
   metadata: SourceMetadata

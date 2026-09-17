@@ -2,6 +2,7 @@ import Firecrawl from '@mendable/firecrawl-js'
 
 import { env } from '../config/env'
 import { ApiError } from '../utils/api-error'
+import { withRetry } from '../utils/retry'
 
 interface ScrapedPage {
   markdown: string
@@ -14,7 +15,11 @@ async function scrapeToMarkdown(url: string): Promise<ScrapedPage> {
   }
 
   const firecrawl = new Firecrawl({ apiKey: env.FIRECRAWL_API_KEY })
-  const document = await firecrawl.scrape(url, { formats: ['markdown'] })
+  // Transient scrape failures (rate limit, network) are retried with backoff.
+  const document = await withRetry(() => firecrawl.scrape(url, { formats: ['markdown'] }), {
+    attempts: 3,
+    label: 'firecrawl-scrape',
+  })
 
   if (!document.markdown) {
     throw new Error('No content could be extracted from this page')

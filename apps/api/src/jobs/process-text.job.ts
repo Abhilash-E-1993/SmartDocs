@@ -4,14 +4,18 @@ import { inngest } from './client'
 import {
   completeSource,
   failSourceFromEvent,
-  indexSource,
+  labelSource,
+  prepareSourceChunks,
+  vectorizeSource,
   type SourceProcessEventData,
 } from './steps'
 
 export const processTextJob = inngest.createFunction(
   {
     id: 'process-text-source',
-    retries: 2,
+    retries: 3,
+    // Cap simultaneous runs so burst uploads cannot trigger OpenAI/Pinecone rate limits.
+    concurrency: { limit: 3 },
     triggers: [{ event: 'sources/text.process' }],
     onFailure: async ({ event, error }: { event: unknown; error: Error }) => {
       await failSourceFromEvent(event, error)
@@ -27,7 +31,11 @@ export const processTextJob = inngest.createFunction(
       return normalizeText(source.rawContent ?? '')
     })
 
-    await step.run('index', () => indexSource(sourceId, cleaned))
+    // Indexing is split into durable steps — a failed run resumes at the
+    // failed step instead of redoing the whole (possibly long) pipeline.
+    await step.run('index-chunks', () => prepareSourceChunks(sourceId, cleaned))
+    await step.run('index-vectors', () => vectorizeSource(sourceId))
+    await step.run('label-topic', () => labelSource(sourceId, cleaned))
 
     return step.run('mark-ready', () => completeSource(sourceId))
   },

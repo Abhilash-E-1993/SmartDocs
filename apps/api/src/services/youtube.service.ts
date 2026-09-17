@@ -1,6 +1,8 @@
 import { YoutubeTranscript } from 'youtube-transcript'
 
+import { logger } from '../config/logger'
 import { ApiError } from '../utils/api-error'
+import { withRetry } from '../utils/retry'
 
 interface YoutubeTranscriptResult {
   videoId: string
@@ -40,9 +42,19 @@ async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
     throw ApiError.badRequest('Invalid YouTube URL')
   }
 
-  const segments = await YoutubeTranscript.fetchTranscript(url).catch(() => {
-    throw new Error('No transcript is available for this video')
-  })
+  // Long videos make YouTube's transcript endpoint flaky — transient network
+  // failures are retried with backoff; permanent ones (transcripts disabled,
+  // unavailable video) still fail fast.
+  let segments
+  try {
+    segments = await withRetry(() => YoutubeTranscript.fetchTranscript(url), {
+      attempts: 3,
+      label: 'youtube-transcript',
+    })
+  } catch (error) {
+    logger.warn({ err: error, videoId }, 'YouTube transcript fetch failed')
+    throw new Error('No transcript is available for this video', { cause: error })
+  }
 
   if (segments.length === 0) {
     throw new Error('No transcript is available for this video')

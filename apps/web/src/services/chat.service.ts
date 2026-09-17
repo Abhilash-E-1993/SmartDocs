@@ -2,8 +2,6 @@ import { API_BASE_URL, ApiRequestError, api, getAuthToken } from '@/lib/axios'
 import type { ApiFailure, ApiSuccess } from '@/types/api'
 import type { Chat, ChatMessage, ChatStreamEvent } from '@/types/chat'
 
-const DEFAULT_TOP_K = 5
-
 export interface StreamMessageOptions {
   topK?: number
   signal?: AbortSignal
@@ -80,9 +78,16 @@ export const chatService = {
     options: StreamMessageOptions,
   ): Promise<void> {
     const token = await getAuthToken()
-    const topK = options.topK ?? DEFAULT_TOP_K
 
-    const response = await fetch(`${API_BASE_URL}/chats/${chatId}/messages?topK=${topK}`, {
+    // topK is only sent when explicitly requested — by default the API scales
+    // retrieval depth with the number of sources in the workspace, which keeps
+    // multi-source workspaces fully covered.
+    const url = new URL(`${API_BASE_URL}/chats/${chatId}/messages`)
+    if (options.topK !== undefined) {
+      url.searchParams.set('topK', String(options.topK))
+    }
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

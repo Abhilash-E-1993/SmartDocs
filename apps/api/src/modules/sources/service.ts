@@ -53,6 +53,7 @@ async function dispatchProcessing(source: SourceDocument): Promise<void> {
 
 async function queueSource(source: SourceDocument): Promise<SourceDocument> {
   source.status = 'QUEUED'
+  source.progress = 5
   source.queuedAt = new Date()
   await source.save()
   await dispatchProcessing(source)
@@ -216,30 +217,70 @@ async function retryForOwner(id: string, ownerId: string): Promise<SourceDocumen
 async function markProcessing(id: string): Promise<void> {
   await SourceModel.findByIdAndUpdate(id, {
     status: 'PROCESSING',
+    progress: 10,
     processingStartedAt: new Date(),
   })
 }
 
 async function markIndexing(id: string): Promise<void> {
-  await SourceModel.findByIdAndUpdate(id, { status: 'INDEXING' })
+  await SourceModel.findByIdAndUpdate(id, { status: 'INDEXING', progress: 30 })
 }
 
 async function markReady(id: string): Promise<void> {
   await SourceModel.findByIdAndUpdate(id, {
     status: 'READY',
+    progress: 100,
     processedAt: new Date(),
     $unset: { errorMessage: '', failedAt: '' },
   })
+}
+
+/**
+ * Live 0-100 progress for the UI bar. Telemetry-grade: a failed progress write
+ * must never break the indexing pipeline, so errors are swallowed.
+ */
+async function setProgress(id: string, progress: number): Promise<void> {
+  try {
+    const clamped = Math.max(0, Math.min(100, Math.round(progress)))
+    await SourceModel.findByIdAndUpdate(id, { progress: clamped })
+  } catch (error) {
+    logger.debug({ err: error, sourceId: id }, 'Progress update failed')
+  }
 }
 
 async function setExtractedMetadata(id: string, metadata: { pageCount?: number }): Promise<void> {
   await SourceModel.findByIdAndUpdate(id, { $set: { 'metadata.pageCount': metadata.pageCount } })
 }
 
+async function getChunksBySourceId(sourceId: string): Promise<SourceChunkDocument[]> {
+  return SourceChunkModel.find({ sourceId }).sort({ chunkIndex: 1 })
+}
+
+async function setTopic(id: string, topic: string, topicSummary: string): Promise<void> {
+  await SourceModel.findByIdAndUpdate(id, {
+    topic: topic.slice(0, 120),
+    topicSummary: topicSummary.slice(0, 300),
+  })
+}
+
+async function findReadyDuplicateByHash(
+  workspaceId: string,
+  excludeSourceId: string,
+  contentHash: string,
+): Promise<SourceDocument | null> {
+  return SourceModel.findOne({
+    workspaceId,
+    _id: { $ne: excludeSourceId },
+    status: 'READY',
+    'metadata.contentHash': contentHash,
+  })
+}
+
 async function storeChunks(
   id: string,
   cleanedText: string,
   chunks: Array<TextChunk & { contextSummary?: string }>,
+  contentHash?: string,
 ): Promise<SourceChunkDocument[]> {
   const source = await getById(id)
 
@@ -265,6 +306,9 @@ async function storeChunks(
   source.chunkCount = chunks.length
   source.characterCount = cleanedText.length
   source.contentPreview = cleanedText.slice(0, 400)
+  if (contentHash) {
+    source.metadata.contentHash = contentHash
+  }
   await source.save()
 
   return inserted
@@ -285,6 +329,10 @@ export const sourceService = {
   markIndexing,
   markReady,
   markFailed,
+  setProgress,
   setExtractedMetadata,
+  getChunksBySourceId,
+  setTopic,
+  findReadyDuplicateByHash,
   storeChunks,
 }

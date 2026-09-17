@@ -62,9 +62,26 @@ export function SourceListItem({ source, onOpenDetails }: SourceListItemProps) {
               )}
             />
             <span className="truncate">
-              {statusMeta.label} · {typeMeta.label} · {formatDate(source.createdAt)}
+              {statusMeta.label}
+              {isActive ? ` · ${Math.round(source.progress ?? 0)}%` : ''} · {typeMeta.label} ·{' '}
+              {formatDate(source.createdAt)}
             </span>
           </span>
+          {isActive ? (
+            <span
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(source.progress ?? 0)}
+              aria-label={`${statusMeta.label} progress`}
+              className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-muted"
+            >
+              <span
+                className="block h-full rounded-full bg-primary/80 transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.max(3, Math.min(100, source.progress ?? 0))}%` }}
+              />
+            </span>
+          ) : null}
         </span>
 
         {source.status === 'FAILED' ? <FailedRetry source={source} /> : null}

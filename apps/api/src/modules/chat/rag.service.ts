@@ -10,12 +10,15 @@ import { SourceModel, type SourceDocument } from '../sources/Source'
 import { SourceChunkModel, type SourceChunkDocument } from '../sources/SourceChunk'
 import type { ChatDocument } from './Chat'
 import { DEFAULT_CHAT_TITLE } from './Chat'
+import { mapWithConcurrency } from '../../utils/async-pool'
 import {
   buildContextBlock,
+  buildSourceCatalog,
   buildSummarySystemPrompt,
   buildSystemPrompt,
   prepareContextChunks,
   type RetrievedChunk,
+  type SourceCatalogEntry,
 } from './context-builder'
 import type { IMessageCitation, MessageDocument } from './Message'
 import { chatService } from './service'
@@ -24,16 +27,25 @@ import { toMessageResponse, type ChatStreamEvent } from './types'
 const VERIFICATION_THRESHOLD = 7
 const MAX_ATTEMPTS = 2
 const DEFAULT_TOP_K = 8
+const PER_SOURCE_TOP_K = 4
+const MAX_TOP_K = 24
 const CITATION_CONTENT_LIMIT = 2000
 const RRF_K = 60
 const RERANK_CANDIDATES = 12
+const RERANK_CANDIDATE_POOL = 24
+const MAX_CANDIDATES_PER_SOURCE = 4
 const RERANK_MIN_SCORE = 4
 const MIN_KEPT_AFTER_RERANK = 2
+const DIVERSITY_MIN_SOURCES = 2
 const FINAL_CHUNKS = 6
 const MAX_CONTEXT_CHUNKS = 9
 const NEIGHBOR_WINDOW = 1
 const SUMMARY_MATCH_TOP_K = 10
+const MAX_SUMMARY_SOURCES = 4
+const MULTI_SOURCE_SCORE_RATIO = 0.55
 const MAX_SUMMARY_CHARS = 150_000
+const TOPIC_BACKFILL_LIMIT = 5
+const TOPIC_BACKFILL_CONCURRENCY = 3
 const STREAM_STEP_CHARS = 24
 const STREAM_STEP_DELAY_MS = 12
 
@@ -50,6 +62,136 @@ interface AttemptResult {
   answer: string
   citations: IMessageCitation[]
   score: number | undefined
+}
+
+/* --------------------------------------------------------------------------
+ * Source catalog — every READY source with its topic. Sources indexed before
+ * topic labeling existed are backfilled lazily here (bounded per request and
+ * persisted), so deployed workspaces heal themselves without a migration.
+ * ------------------------------------------------------------------------ */
+
+interface SourceCatalog {
+  sources: SourceDocument[]
+  entries: SourceCatalogEntry[]
+}
+
+async function getSourceCatalog(workspaceId: string): Promise<SourceCatalog> {
+  const sources = await SourceModel.find({ workspaceId, status: 'READY' }).sort({
+    createdAt: -1,
+  })
+
+  const missing = sources
+    .filter((source) => !source.topic && Boolean(source.contentPreview))
+    .slice(0, TOPIC_BACKFILL_LIMIT)
+
+  if (missing.length > 0) {
+    await mapWithConcurrency(missing, TOPIC_BACKFILL_CONCURRENCY, async (source) => {
+      const result = await openaiService.generateSourceTopic(
+        source.title,
+        source.sourceType,
+        source.contentPreview ?? '',
+      )
+      if (!result) {
+        return
+      }
+      source.topic = result.topic
+      source.topicSummary = result.summary
+      await SourceModel.findByIdAndUpdate(source._id, {
+        topic: result.topic,
+        topicSummary: result.summary,
+      }).catch((error: unknown) => {
+        logger.warn({ err: error, sourceId: source._id.toString() }, 'Topic backfill save failed')
+      })
+    })
+  }
+
+  return {
+    sources,
+    entries: sources.map((source) => ({
+      sourceId: source._id.toString(),
+      title: source.title,
+      sourceType: source.sourceType,
+      topic: source.topic,
+    })),
+  }
+}
+
+/** Deeper queries for bigger corpora so every source can be reached. */
+function computeTopK(sourceCount: number): number {
+  return Math.min(MAX_TOP_K, Math.max(DEFAULT_TOP_K, sourceCount * PER_SOURCE_TOP_K))
+}
+
+/* --------------------------------------------------------------------------
+ * Source-diverse selection — without it, top-K retrieval is dominated by the
+ * single most-similar document and the chat effectively ignores the other
+ * sources in the workspace.
+ * ------------------------------------------------------------------------ */
+
+/** Round-robin across sources so the rerank pool covers every relevant source. */
+function pickDiverseMatches(fused: VectorMatch[], limit: number): VectorMatch[] {
+  const bySource = new Map<string, VectorMatch[]>()
+  for (const match of fused) {
+    const list = bySource.get(match.metadata.sourceId) ?? []
+    list.push(match)
+    bySource.set(match.metadata.sourceId, list)
+  }
+
+  const picked: VectorMatch[] = []
+  let round = 0
+  while (picked.length < limit) {
+    let addedThisRound = false
+    for (const list of bySource.values()) {
+      if (picked.length >= limit) {
+        break
+      }
+      if (round >= MAX_CANDIDATES_PER_SOURCE) {
+        continue
+      }
+      const match = list[round]
+      if (match) {
+        picked.push(match)
+        addedThisRound = true
+      }
+    }
+    if (!addedThisRound) {
+      break
+    }
+    round += 1
+  }
+
+  return picked
+}
+
+/**
+ * Guarantees the final context represents several sources: the best chunk of
+ * each qualifying source is protected, the remaining slots go to the highest
+ * scores. Falls back to the plain top-N when few sources qualify.
+ */
+function selectDiverseChunks(ranked: RetrievedChunk[], limit: number): RetrievedChunk[] {
+  if (ranked.length <= limit) {
+    return ranked
+  }
+
+  const bestBySource = new Map<string, RetrievedChunk>()
+  for (const chunk of ranked) {
+    const current = bestBySource.get(chunk.sourceId)
+    if (!current || chunk.score > current.score) {
+      bestBySource.set(chunk.sourceId, chunk)
+    }
+  }
+
+  const protectedChunks = [...bestBySource.values()]
+    .filter((chunk) => chunk.score >= RERANK_MIN_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+
+  if (protectedChunks.length < Math.min(DIVERSITY_MIN_SOURCES, bestBySource.size)) {
+    return ranked.slice(0, limit)
+  }
+
+  const protectedIds = new Set(protectedChunks.map((chunk) => chunk.chunkId))
+  const rest = ranked.filter((chunk) => !protectedIds.has(chunk.chunkId))
+  return [...protectedChunks, ...rest.slice(0, limit - protectedChunks.length)]
 }
 
 /* --------------------------------------------------------------------------
@@ -197,26 +339,28 @@ async function pickSummarySources(workspaceId: string, query: string): Promise<S
       SUMMARY_MATCH_TOP_K,
     )
 
-    // Tally retrieval scores per source — the dominant source is the target.
+    // Tally retrieval scores per source. Every source close to the winner is
+    // a target too — "summarize my sources" over several documents must cover
+    // all of them, not just the dominant one.
     const tally = new Map<string, number>()
     for (const match of matches) {
       tally.set(match.metadata.sourceId, (tally.get(match.metadata.sourceId) ?? 0) + match.score)
     }
 
-    let bestId: string | null = null
-    let bestScore = 0
-    for (const [sourceId, score] of tally) {
-      if (score > bestScore) {
-        bestId = sourceId
-        bestScore = score
-      }
-    }
+    const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1])
+    const bestScore = ranked[0]?.[1] ?? 0
 
-    const found = bestId
-      ? readySources.find((source) => source._id.toString() === bestId)
-      : undefined
-    if (found) {
-      return [found]
+    const pickedIds = ranked
+      .filter(([, score]) => score >= bestScore * MULTI_SOURCE_SCORE_RATIO)
+      .slice(0, MAX_SUMMARY_SOURCES)
+      .map(([sourceId]) => sourceId)
+
+    const picked = pickedIds
+      .map((sourceId) => readySources.find((source) => source._id.toString() === sourceId))
+      .filter((source): source is SourceDocument => Boolean(source))
+
+    if (picked.length > 0) {
+      return picked
     }
   } catch (error) {
     logger.warn({ err: error }, 'Summary source detection failed, using the most recent source')
@@ -364,7 +508,10 @@ async function retrieveContextChunks(
     embeddings.map((vector) => pineconeService.queryWorkspace(workspaceId, vector, topK)),
   )
   const fused = rrfFuse(resultLists)
-  const candidates = await hydrateChunks(fused.slice(0, RERANK_CANDIDATES))
+  // Take a wide pool, then pick candidates round-robin per source so the
+  // reranker sees every relevant source instead of only the dominant one.
+  const diverseMatches = pickDiverseMatches(fused.slice(0, RERANK_CANDIDATE_POOL), RERANK_CANDIDATES)
+  const candidates = await hydrateChunks(diverseMatches)
   if (candidates.length === 0) {
     return []
   }
@@ -386,7 +533,9 @@ async function retrieveContextChunks(
       strong.length >= MIN_KEPT_AFTER_RERANK ? strong : ranked.slice(0, MIN_KEPT_AFTER_RERANK)
   }
 
-  const expanded = await expandWithNeighbors(ranked.slice(0, FINAL_CHUNKS))
+  // Guarantee coverage across sources before expanding with neighbors.
+  const selected = selectDiverseChunks(ranked, FINAL_CHUNKS)
+  const expanded = await expandWithNeighbors(selected)
   return prepareContextChunks(expanded).slice(0, MAX_CONTEXT_CHUNKS)
 }
 
@@ -395,10 +544,12 @@ async function runQuestionAttemptLoop(
   transformed: TransformedQuery,
   history: ChatHistoryMessage[],
   memories: string[],
+  catalog: SourceCatalogEntry[],
 ): Promise<AttemptResult> {
   const { chat, question, emit, signal } = params
   const workspaceId = chat.workspaceId.toString()
-  const topK = params.topK ?? DEFAULT_TOP_K
+  const topK = params.topK ?? computeTopK(catalog.length)
+  const catalogBlock = buildSourceCatalog(catalog)
 
   let best: AttemptResult | null = null
   let feedback: string | undefined
@@ -416,7 +567,7 @@ async function runQuestionAttemptLoop(
     const context = buildContextBlock(chunks)
 
     emit({ type: 'status', stage: 'generating', attempt })
-    const system = buildSystemPrompt(context, memories, feedback)
+    const system = buildSystemPrompt(context, memories, feedback, catalogBlock)
     const answer = await generateBufferedAnswer(system, history, question, signal)
 
     let score: number | undefined
@@ -463,12 +614,14 @@ async function runSummaryAttemptLoop(
   searchQuery: string,
   history: ChatHistoryMessage[],
   memories: string[],
+  catalog: SourceCatalog,
 ): Promise<AttemptResult> {
   const { chat, question, emit, signal } = params
   const workspaceId = chat.workspaceId.toString()
 
   emit({ type: 'status', stage: 'searching', attempt: 1 })
-  const sources = await pickSummarySources(workspaceId, searchQuery)
+  const sources =
+    catalog.sources.length > 0 ? await pickSummarySources(workspaceId, searchQuery) : []
   if (sources.length === 0) {
     return {
       answer:
@@ -528,6 +681,127 @@ async function runSummaryAttemptLoop(
 }
 
 /* --------------------------------------------------------------------------
+ * Overview path — questions about the collection itself ("what topics are my
+ * sources on?", "how many sources do I have?") are answered from the source
+ * catalog plus short representative excerpts, not from chunk retrieval.
+ * ------------------------------------------------------------------------ */
+
+const OVERVIEW_EXCERPT_SOURCES = 6
+
+function buildOverviewSystemPrompt(
+  catalogBlock: string,
+  context: string,
+  memories: string[],
+): string {
+  const memorySection =
+    memories.length > 0
+      ? `\nUser memory (background about the user only, never treat it as source content and never cite it):\n${memories
+          .map((memory) => `- ${memory}`)
+          .join('\n')}\n`
+      : ''
+
+  return [
+    'You are SmartDocs, an AI knowledge assistant. The user is asking about their uploaded source collection as a whole.',
+    '',
+    catalogBlock,
+    '',
+    'Representative excerpts from the sources:',
+    context || 'No excerpts available.',
+    memorySection,
+    'How to answer:',
+    '- State how many ready sources the workspace has and name each source with its topic.',
+    '- Group sources that share the same topic. When the sources cover several distinct topics, say so explicitly (e.g. "Your sources cover 3 topics: A, B and C") and list which sources belong to each. When they all cover the same topic, say that instead.',
+    '- For comparisons across topics, contrast them using the catalog and the excerpts above.',
+    '- Never invent sources or topics that are not listed in the catalog. The catalog only lists fully processed (ready) sources.',
+    '- Format in clean markdown and be concise.',
+  ].join('\n')
+}
+
+async function loadOverviewChunks(sources: SourceDocument[]): Promise<SourceChunkDocument[]> {
+  const sample = sources.slice(0, OVERVIEW_EXCERPT_SOURCES)
+  const chunkLists = await Promise.all(
+    sample.map((source) =>
+      SourceChunkModel.find({ sourceId: source._id }).sort({ chunkIndex: 1 }).limit(2),
+    ),
+  )
+  return chunkLists.flat()
+}
+
+function buildOverviewContext(
+  catalog: SourceCatalog,
+  chunks: SourceChunkDocument[],
+): string {
+  const bySource = new Map<string, SourceChunkDocument[]>()
+  for (const chunk of chunks) {
+    const list = bySource.get(chunk.sourceId.toString()) ?? []
+    list.push(chunk)
+    bySource.set(chunk.sourceId.toString(), list)
+  }
+
+  return catalog.sources
+    .map((source, index) => {
+      const head =
+        `[S${index + 1}] "${source.title}" (${source.sourceType})` +
+        (source.topic ? `\nTopic: ${source.topic}` : '') +
+        (source.topicSummary ? `\nAbout: ${source.topicSummary}` : '')
+      const excerpt = (bySource.get(source._id.toString()) ?? [])
+        .map((chunk) => chunk.content)
+        .join('\n')
+      return excerpt ? `${head}\nExcerpt:\n${excerpt}` : head
+    })
+    .join('\n\n')
+}
+
+function overviewCitations(
+  catalog: SourceCatalog,
+  chunks: SourceChunkDocument[],
+): IMessageCitation[] {
+  return chunks.map((chunk) => {
+    const source = catalog.sources.find(
+      (candidate) => candidate._id.toString() === chunk.sourceId.toString(),
+    )
+    return {
+      chunkId: chunk._id.toString(),
+      sourceId: chunk.sourceId.toString(),
+      sourceTitle: source?.title ?? 'Source',
+      sourceType: chunk.sourceType,
+      chunkIndex: chunk.chunkIndex,
+      content: chunk.content.slice(0, CITATION_CONTENT_LIMIT),
+      score: 1,
+    }
+  })
+}
+
+async function runOverviewPath(
+  params: AnswerQuestionParams,
+  history: ChatHistoryMessage[],
+  memories: string[],
+  catalog: SourceCatalog,
+): Promise<AttemptResult> {
+  const { question, emit, signal } = params
+
+  if (catalog.sources.length === 0) {
+    return {
+      answer:
+        'There are no ready sources in this workspace yet. Add a source, wait for it to finish processing, then ask again.',
+      citations: [],
+      score: undefined,
+    }
+  }
+
+  emit({ type: 'status', stage: 'searching', attempt: 1 })
+  const chunks = await loadOverviewChunks(catalog.sources)
+  const context = buildOverviewContext(catalog, chunks)
+  const citations = overviewCitations(catalog, chunks)
+
+  emit({ type: 'status', stage: 'generating', attempt: 1 })
+  const system = buildOverviewSystemPrompt(buildSourceCatalog(catalog.entries), context, memories)
+  const answer = await generateBufferedAnswer(system, history, question, signal)
+
+  return { answer, citations, score: undefined }
+}
+
+/* --------------------------------------------------------------------------
  * Entry point
  * ------------------------------------------------------------------------ */
 
@@ -566,15 +840,18 @@ async function answerQuestion(params: AnswerQuestionParams): Promise<MessageDocu
     .map((doc) => ({ role: doc.role, content: doc.content }))
 
   emit({ type: 'status', stage: 'rewriting', attempt: 1 })
-  const [transformed, memories] = await Promise.all([
+  const [transformed, memories, catalog] = await Promise.all([
     openaiService.transformQuery(question, history),
     mem0Service.searchMemories(ownerId, question),
+    getSourceCatalog(workspaceId),
   ])
 
   const result =
-    transformed.intent === 'summary'
-      ? await runSummaryAttemptLoop(params, transformed.standalone, history, memories)
-      : await runQuestionAttemptLoop(params, transformed, history, memories)
+    transformed.intent === 'overview'
+      ? await runOverviewPath(params, history, memories, catalog)
+      : transformed.intent === 'summary'
+        ? await runSummaryAttemptLoop(params, transformed.standalone, history, memories, catalog)
+        : await runQuestionAttemptLoop(params, transformed, history, memories, catalog.entries)
 
   // The answer is only streamed after verification has passed (or the best
   // attempt was chosen) — the client never sees an unverified draft.

@@ -3,16 +3,21 @@ import OpenAI from 'openai'
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 import { ApiError } from '../utils/api-error'
+import { mapWithConcurrency } from '../utils/async-pool'
+import { withRetry } from '../utils/retry'
 
 export const EMBEDDING_MODEL = 'text-embedding-3-small'
 export const EMBEDDING_DIMENSIONS = 1536
 
 const SMALL_MODEL = 'gpt-4o-mini'
 const EMBEDDING_BATCH_SIZE = 64
+const EMBEDDING_BATCH_CONCURRENCY = 3
 const CHUNK_CONTEXT_BATCH_SIZE = 8
+const CHUNK_CONTEXT_CONCURRENCY = 3
 const CHUNK_CONTEXT_PREVIEW_CHARS = 800
 const RERANK_PREVIEW_CHARS = 700
 const MAX_QUERY_VARIANTS = 5
+const TOPIC_SAMPLE_CHARS = 6000
 
 export interface ChatHistoryMessage {
   role: 'user' | 'assistant'
@@ -24,7 +29,7 @@ export interface VerificationResult {
   reason: string
 }
 
-export type QueryIntent = 'summary' | 'question'
+export type QueryIntent = 'summary' | 'question' | 'overview'
 
 export interface TransformedQuery {
   intent: QueryIntent
@@ -52,24 +57,40 @@ function getClient(): OpenAI {
   return client
 }
 
-async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+async function generateEmbeddings(
+  texts: string[],
+  onBatch?: (done: number, total: number) => void,
+): Promise<number[][]> {
   if (texts.length === 0) {
     return []
   }
 
   const openai = getClient()
-  const embeddings: number[][] = []
-
+  const batches: string[][] = []
   for (let index = 0; index < texts.length; index += EMBEDDING_BATCH_SIZE) {
-    const batch = texts.slice(index, index + EMBEDDING_BATCH_SIZE)
-    const response = await openai.embeddings.create({ model: EMBEDDING_MODEL, input: batch })
-    const ordered = [...response.data].sort((a, b) => a.index - b.index)
-    for (const item of ordered) {
-      embeddings.push(item.embedding)
-    }
+    batches.push(texts.slice(index, index + EMBEDDING_BATCH_SIZE))
   }
 
-  return embeddings
+  // Batches are independent — run a few in parallel instead of strictly
+  // sequentially (bounded so large documents do not trigger rate limits).
+  // Each batch retries transient failures (429/5xx/network) with backoff.
+  let done = 0
+  const batchEmbeddings = await mapWithConcurrency(
+    batches,
+    EMBEDDING_BATCH_CONCURRENCY,
+    async (batch) => {
+      const response = await withRetry(
+        () => openai.embeddings.create({ model: EMBEDDING_MODEL, input: batch }),
+        { label: 'embeddings-batch' },
+      )
+      const ordered = [...response.data].sort((a, b) => a.index - b.index)
+      done += 1
+      onBatch?.(done, batches.length)
+      return ordered.map((item) => item.embedding)
+    },
+  )
+
+  return batchEmbeddings.flat()
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
@@ -115,8 +136,9 @@ async function transformQuery(
           content:
             'You are the query planner of a retrieval augmented assistant. ' +
             'Analyze the user message using the conversation history and return JSON only:\n' +
-            '{"intent": "summary" | "question", "standalone": string, "step_back": string, "hyde": string, "sub_queries": string[]}\n' +
-            '- intent "summary": the user wants a summary, overview, gist, key points or main ideas of a whole source (video, PDF, document, article), or asks what a source is about. For summaries fill only "standalone" (a query identifying the target source by topic or title) and use "" and [] for the rest.\n' +
+            '{"intent": "summary" | "question" | "overview", "standalone": string, "step_back": string, "hyde": string, "sub_queries": string[]}\n' +
+            '- intent "summary": the user wants a summary, gist, key points or main ideas of one or more whole sources (video, PDF, document, article), or asks what a specific source is about. For summaries fill only "standalone" (a query identifying the target source by topic or title; keep it generic when the user wants ALL sources summarized) and use "" and [] for the rest.\n' +
+            '- intent "overview": the user asks about their source collection as a whole — how many sources they have, which topics or subjects the sources cover, or requests a comparison across different topics. Fill only "standalone" (the user request rephrased to stand alone) and use "" and [] for the rest.\n' +
             '- intent "question": a specific question. Fill every field:\n' +
             '  - standalone: the question rewritten to stand alone, resolving pronouns and references via the history.\n' +
             '  - step_back: a broader, more abstract version of the question that retrieves background context.\n' +
@@ -138,7 +160,8 @@ async function transformQuery(
       sub_queries?: unknown
     }
 
-    const intent: QueryIntent = parsed.intent === 'summary' ? 'summary' : 'question'
+    const intent: QueryIntent =
+      parsed.intent === 'summary' ? 'summary' : parsed.intent === 'overview' ? 'overview' : 'question'
     const standalone =
       typeof parsed.standalone === 'string' && parsed.standalone.trim()
         ? parsed.standalone.trim()
@@ -242,57 +265,126 @@ async function generateChunkContexts(
   sourceTitle: string,
   sourceType: string,
   contents: string[],
+  onBatch?: (done: number, total: number) => void,
 ): Promise<string[]> {
   if (contents.length === 0) {
     return []
   }
 
   const openai = getClient()
-  const contexts: string[] = []
-
+  const batches: string[][] = []
   for (let start = 0; start < contents.length; start += CHUNK_CONTEXT_BATCH_SIZE) {
-    const batch = contents.slice(start, start + CHUNK_CONTEXT_BATCH_SIZE)
-    try {
-      const completion = await openai.chat.completions.create({
-        model: SMALL_MODEL,
-        temperature: 0,
-        max_completion_tokens: 60 * batch.length + 50,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You situate excerpts inside their source so a search engine can find them. ' +
-              'For EACH excerpt write one short sentence (max 25 words) naming the specific topic or section it belongs to within the source. ' +
-              'Return JSON only: {"contexts": string[]} with exactly one entry per excerpt, in the same order.',
-          },
-          {
-            role: 'user',
-            content: `Source: "${sourceTitle}" (${sourceType})\n\n${batch
-              .map(
-                (content, index) =>
-                  `[${index + 1}] ${content.slice(0, CHUNK_CONTEXT_PREVIEW_CHARS)}`,
-              )
-              .join('\n\n')}`,
-          },
-        ],
-      })
-
-      const parsed = JSON.parse(completion.choices[0]?.message.content ?? '{}') as {
-        contexts?: unknown
-      }
-      const list = Array.isArray(parsed.contexts) ? parsed.contexts : []
-      for (let index = 0; index < batch.length; index += 1) {
-        const value = list[index]
-        contexts.push(typeof value === 'string' ? value.trim().slice(0, 200) : '')
-      }
-    } catch (error) {
-      logger.warn({ err: error, sourceTitle }, 'Chunk context batch failed, using raw chunks')
-      contexts.push(...batch.map(() => ''))
-    }
+    batches.push(contents.slice(start, start + CHUNK_CONTEXT_BATCH_SIZE))
   }
 
-  return contexts
+  // Each batch is an independent LLM call — process a few concurrently so long
+  // documents index much faster (bounded to stay well under rate limits).
+  let done = 0
+  const batchContexts = await mapWithConcurrency(
+    batches,
+    CHUNK_CONTEXT_CONCURRENCY,
+    async (batch): Promise<string[]> => {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: SMALL_MODEL,
+          temperature: 0,
+          max_completion_tokens: 60 * batch.length + 50,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You situate excerpts inside their source so a search engine can find them. ' +
+                'For EACH excerpt write one short sentence (max 25 words) naming the specific topic or section it belongs to within the source. ' +
+                'Return JSON only: {"contexts": string[]} with exactly one entry per excerpt, in the same order.',
+            },
+            {
+              role: 'user',
+              content: `Source: "${sourceTitle}" (${sourceType})\n\n${batch
+                .map(
+                  (content, index) =>
+                    `[${index + 1}] ${content.slice(0, CHUNK_CONTEXT_PREVIEW_CHARS)}`,
+                )
+                .join('\n\n')}`,
+            },
+          ],
+        })
+
+        const parsed = JSON.parse(completion.choices[0]?.message.content ?? '{}') as {
+          contexts?: unknown
+        }
+        const list = Array.isArray(parsed.contexts) ? parsed.contexts : []
+        return batch.map((_, index) => {
+          const value = list[index]
+          return typeof value === 'string' ? value.trim().slice(0, 200) : ''
+        })
+      } catch (error) {
+        logger.warn({ err: error, sourceTitle }, 'Chunk context batch failed, using raw chunks')
+        return batch.map(() => '')
+      } finally {
+        done += 1
+        onBatch?.(done, batches.length)
+      }
+    },
+  )
+
+  return batchContexts.flat()
+}
+
+/* --------------------------------------------------------------------------
+ * Source topic labeling — one cheap call at index time producing a short
+ * subject label + one-line summary per source (powers the source catalog
+ * the chat uses to differentiate topics across multiple sources).
+ * ------------------------------------------------------------------------ */
+
+export interface SourceTopic {
+  topic: string
+  summary: string
+}
+
+async function generateSourceTopic(
+  sourceTitle: string,
+  sourceType: string,
+  textSample: string,
+): Promise<SourceTopic | null> {
+  const sample = textSample.trim().slice(0, TOPIC_SAMPLE_CHARS)
+  if (!sample) {
+    return null
+  }
+
+  try {
+    const completion = await getClient().chat.completions.create({
+      model: SMALL_MODEL,
+      temperature: 0,
+      max_completion_tokens: 120,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You label documents for a knowledge base. Given the beginning of a source, return JSON only: ' +
+            '{"topic": string, "summary": string}. ' +
+            '- topic: the single specific subject of the source in 2-6 words (e.g. "React hooks tutorial", "Q3 financial results"). ' +
+            '- summary: one sentence (max 30 words) describing what the source covers.',
+        },
+        { role: 'user', content: `Source: "${sourceTitle}" (${sourceType})\n\n${sample}` },
+      ],
+    })
+
+    const parsed = JSON.parse(completion.choices[0]?.message.content ?? '{}') as {
+      topic?: unknown
+      summary?: unknown
+    }
+    const topic = typeof parsed.topic === 'string' ? parsed.topic.trim().slice(0, 120) : ''
+    const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 300) : ''
+    if (!topic) {
+      return null
+    }
+    return { topic, summary }
+  } catch (error) {
+    logger.warn({ err: error, sourceTitle }, 'Source topic generation failed')
+    return null
+  }
 }
 
 /* --------------------------------------------------------------------------
@@ -407,6 +499,7 @@ export const openaiService = {
   transformQuery,
   rerankChunks,
   generateChunkContexts,
+  generateSourceTopic,
   generateAnswer,
   verifyAnswer,
   generateChatTitle,

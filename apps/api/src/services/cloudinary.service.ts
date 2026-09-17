@@ -1,6 +1,7 @@
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary'
 import { logger } from '../config/logger'
 import { ApiError } from '../utils/api-error'
+import { withRetry } from '../utils/retry'
 
 interface UploadedPdf {
   url: string
@@ -40,21 +41,33 @@ async function uploadPdf(buffer: Buffer, publicId: string): Promise<UploadedPdf>
   })
 }
 
-async function downloadPdf(url: string): Promise<Buffer> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      // Free Cloudinary accounts block public delivery of raw files (PDFs) until
-      // this setting is enabled — signed URLs do not bypass the restriction.
-      throw new Error(
-        'Cloudinary blocked the PDF download. Enable "PDF and ZIP files delivery" under ' +
-          'Settings > Security in the Cloudinary dashboard, then retry this source',
-      )
-    }
-    throw new Error(`Failed to download PDF (HTTP ${response.status})`)
-  }
+function httpError(message: string, status: number): Error {
+  // Tagging the status lets withRetry tell transient (429/5xx) failures apart
+  // from permanent ones (401/403) — only the transient ones are retried.
+  return Object.assign(new Error(message), { status })
+}
 
-  return Buffer.from(await response.arrayBuffer())
+async function downloadPdf(url: string): Promise<Buffer> {
+  return withRetry(
+    async () => {
+      const response = await fetch(url)
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          // Free Cloudinary accounts block public delivery of raw files (PDFs)
+          // until this setting is enabled — signed URLs do not bypass it. This
+          // error has no status tag, so it is never retried (fails fast).
+          throw new Error(
+            'Cloudinary blocked the PDF download. Enable "PDF and ZIP files delivery" under ' +
+              'Settings > Security in the Cloudinary dashboard, then retry this source',
+          )
+        }
+        throw httpError(`Failed to download PDF (HTTP ${response.status})`, response.status)
+      }
+
+      return Buffer.from(await response.arrayBuffer())
+    },
+    { attempts: 3, label: 'cloudinary-download' },
+  )
 }
 
 async function deletePdf(publicId: string): Promise<void> {

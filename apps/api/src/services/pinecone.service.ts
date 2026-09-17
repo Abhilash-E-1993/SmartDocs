@@ -3,9 +3,12 @@ import { Pinecone, type Index, type RecordMetadata } from '@pinecone-database/pi
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 import { ApiError } from '../utils/api-error'
+import { mapWithConcurrency } from '../utils/async-pool'
+import { withRetry } from '../utils/retry'
 import { EMBEDDING_DIMENSIONS } from './openai.service'
 
 const UPSERT_BATCH_SIZE = 96
+const UPSERT_BATCH_CONCURRENCY = 2
 
 export interface ChunkVectorMetadata {
   workspaceId: string
@@ -107,24 +110,35 @@ async function upsertChunks(vectors: ChunkVectorInput[]): Promise<void> {
 
   const index = await getIndex()
 
+  const batches: ChunkVectorInput[][] = []
   for (let start = 0; start < vectors.length; start += UPSERT_BATCH_SIZE) {
-    const batch = vectors.slice(start, start + UPSERT_BATCH_SIZE)
-    await index.upsert({
-      records: batch.map((vector) => ({
-        id: vector.chunkId,
-        values: vector.values,
-        metadata: {
-          workspaceId: vector.workspaceId,
-          sourceId: vector.sourceId,
-          chunkId: vector.chunkId,
-          sourceType: vector.sourceType,
-          chunkIndex: vector.chunkIndex,
-          sourceTitle: vector.sourceTitle,
-          originalPosition: vector.originalPosition,
-        },
-      })),
-    })
+    batches.push(vectors.slice(start, start + UPSERT_BATCH_SIZE))
   }
+
+  // Upsert batches are independent — run two at a time to halve indexing
+  // latency on large documents without stressing the Pinecone write path.
+  // Transient failures are retried with backoff per batch.
+  await mapWithConcurrency(batches, UPSERT_BATCH_CONCURRENCY, (batch) =>
+    withRetry(
+      () =>
+        index.upsert({
+          records: batch.map((vector) => ({
+            id: vector.chunkId,
+            values: vector.values,
+            metadata: {
+              workspaceId: vector.workspaceId,
+              sourceId: vector.sourceId,
+              chunkId: vector.chunkId,
+              sourceType: vector.sourceType,
+              chunkIndex: vector.chunkIndex,
+              sourceTitle: vector.sourceTitle,
+              originalPosition: vector.originalPosition,
+            },
+          })),
+        }),
+      { label: 'pinecone-upsert' },
+    ),
+  )
 }
 
 async function queryWorkspace(

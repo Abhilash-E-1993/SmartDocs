@@ -18,6 +18,8 @@ export interface ISourceMetadata {
   videoId?: string
   fileSizeBytes?: number
   pageCount?: number
+  /** SHA-256 of the cleaned text — used to deduplicate identical content. */
+  contentHash?: string
 }
 
 export interface ISource {
@@ -29,9 +31,15 @@ export interface ISource {
   cloudinaryUrl?: string
   cloudinaryPublicId?: string
   metadata: ISourceMetadata
+  /** Short subject label generated at index time (e.g. "React hooks tutorial"). */
+  topic?: string
+  /** One-sentence description of what the source covers. */
+  topicSummary?: string
   rawContent?: string
   errorMessage?: string
   contentPreview?: string
+  /** 0-100 processing progress, updated live by the pipeline (drives the UI bar). */
+  progress: number
   chunkCount: number
   characterCount: number
   queuedAt?: Date
@@ -50,6 +58,7 @@ const metadataSchema = new Schema<ISourceMetadata>(
     videoId: { type: String },
     fileSizeBytes: { type: Number },
     pageCount: { type: Number },
+    contentHash: { type: String },
   },
   { _id: false },
 )
@@ -64,9 +73,12 @@ const sourceSchema = new Schema<ISource>(
     cloudinaryUrl: { type: String },
     cloudinaryPublicId: { type: String },
     metadata: { type: metadataSchema, default: {} },
+    topic: { type: String },
+    topicSummary: { type: String },
     rawContent: { type: String },
     errorMessage: { type: String },
     contentPreview: { type: String },
+    progress: { type: Number, default: 0, min: 0, max: 100 },
     chunkCount: { type: Number, default: 0 },
     characterCount: { type: Number, default: 0 },
     queuedAt: { type: Date },
@@ -79,5 +91,6 @@ const sourceSchema = new Schema<ISource>(
 
 sourceSchema.index({ workspaceId: 1, createdAt: -1 })
 sourceSchema.index({ ownerId: 1, workspaceId: 1 })
+sourceSchema.index({ workspaceId: 1, 'metadata.contentHash': 1 })
 
 export const SourceModel: Model<ISource> = model<ISource>('Source', sourceSchema)

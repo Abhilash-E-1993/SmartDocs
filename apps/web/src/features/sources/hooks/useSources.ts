@@ -31,5 +31,11 @@ export function useSource(sourceId: string | undefined, enabled = true) {
       return sourceService.getById(sourceId)
     },
     enabled: enabled && Boolean(sourceId),
+    // Keep the details sheet live while the source is still processing so the
+    // progress bar animates.
+    refetchInterval: (query) => {
+      const source = query.state.data
+      return source && ACTIVE_SOURCE_STATUSES.includes(source.status) ? 2000 : false
+    },
   })
 }

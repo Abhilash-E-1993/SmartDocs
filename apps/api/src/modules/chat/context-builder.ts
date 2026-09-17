@@ -35,6 +35,32 @@ export function buildContextBlock(chunks: RetrievedChunk[]): string {
     .join('\n\n')
 }
 
+/* --------------------------------------------------------------------------
+ * Source catalog — a map of every READY source (title + topic) injected into
+ * the system prompt so the model knows the whole corpus and can differentiate
+ * topics across sources instead of only seeing a handful of chunks.
+ * ------------------------------------------------------------------------ */
+
+export interface SourceCatalogEntry {
+  sourceId: string
+  title: string
+  sourceType: SourceType
+  topic?: string
+}
+
+export function buildSourceCatalog(entries: SourceCatalogEntry[]): string {
+  if (entries.length === 0) {
+    return ''
+  }
+
+  const lines = entries.map(
+    (entry, index) =>
+      `${index + 1}. "${entry.title}" (${entry.sourceType})` +
+      (entry.topic ? ` — topic: ${entry.topic}` : ''),
+  )
+  return `Sources available in this workspace (${entries.length}):\n${lines.join('\n')}`
+}
+
 function buildMemorySection(memories: string[]): string {
   return memories.length > 0
     ? `\nUser memory (background about the user only, never treat it as source content and never cite it):\n${memories
@@ -49,15 +75,22 @@ function buildFeedbackSection(feedback: string | undefined): string {
     : ''
 }
 
-export function buildSystemPrompt(context: string, memories: string[], feedback?: string): string {
+export function buildSystemPrompt(
+  context: string,
+  memories: string[],
+  feedback?: string,
+  catalog?: string,
+): string {
   const contextSection =
     context.length > 0 ? context : 'No relevant source content was retrieved for this question.'
 
   const memorySection = buildMemorySection(memories)
   const feedbackSection = buildFeedbackSection(feedback)
+  const catalogSection = catalog ? `\n${catalog}\n` : ''
 
   return [
     "You are SmartDocs, an AI knowledge assistant that answers questions using only the user's uploaded sources.",
+    catalogSection,
     '',
     'Context retrieved from the user sources (numbered blocks):',
     contextSection,
@@ -65,7 +98,8 @@ export function buildSystemPrompt(context: string, memories: string[], feedback?
     feedbackSection,
     'How to answer:',
     '- Read every numbered block before answering. Consecutive chunks from the same source are parts of one continuous text — treat them as a single passage.',
-    '- Synthesize one complete answer across all relevant blocks instead of quoting a single block.',
+    '- Synthesize one complete answer across all relevant blocks instead of quoting a single block. When the blocks come from different sources, combine them and attribute each fact to the source it came from.',
+    '- Use the source catalog (when present) as the map of everything the user has uploaded. If the user asks what sources or topics they have, or how many topics the sources cover, answer from the catalog and name the topics explicitly.',
     '- Ground every claim in the context. If the context only partially answers the question, answer what you can and clearly state what is missing. If it contains nothing relevant, say so plainly. Never invent information.',
     '- Cite sources inline using [1], [2], ... matching the numbered blocks whenever retrieved context exists.',
     '- Format answers in clean markdown: a short direct answer first, then headings, bullet lists, tables or code blocks when they help readability.',
