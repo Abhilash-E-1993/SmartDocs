@@ -9,7 +9,7 @@ import { WorkspaceCard } from '@/features/workspace/components/WorkspaceCard'
 import { WorkspaceFormDialog } from '@/features/workspace/components/WorkspaceFormDialog'
 import { useWorkspaces } from '@/features/workspace/hooks/useWorkspaces'
 import { getErrorMessage } from '@/lib/axios'
-import { WorkspaceGridSkeleton } from './WorkspaceGridSkeleton'
+import { DashboardLoadingState } from './DashboardLoadingState'
 
 function greeting(): string {
   const hour = new Date().getHours()
@@ -67,7 +67,7 @@ export function DashboardView() {
         </div>
 
         {isLoading ? (
-          <WorkspaceGridSkeleton />
+          <DashboardLoadingState />
         ) : isError ? (
           <ErrorState
             title="Could not load workspaces"

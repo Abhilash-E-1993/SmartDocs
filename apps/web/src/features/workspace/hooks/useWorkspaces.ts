@@ -9,6 +9,9 @@ export function useWorkspaces() {
   return useQuery({
     queryKey: WORKSPACES_QUERY_KEY,
     queryFn: workspaceService.list,
+    // The list rarely changes; avoid visible refetches when navigating back
+    // to the dashboard within a session.
+    staleTime: 2 * 60_000,
   })
 }
 

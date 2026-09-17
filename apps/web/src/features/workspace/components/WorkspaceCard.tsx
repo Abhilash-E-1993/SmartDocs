@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, Clock, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { ArrowUpRight, Clock, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { useState, type CSSProperties } from 'react'
 
 import { WorkspaceAvatar } from '@/components/common/WorkspaceAvatar'
@@ -77,10 +77,17 @@ export function WorkspaceCard({ workspace, style }: WorkspaceCardProps) {
 
         <div className="space-y-1">
           <p className="truncate text-[15px] font-semibold tracking-tight">{workspace.name}</p>
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3" />
-            Created {formatDate(workspace.createdAt)}
-          </p>
+          {isOptimistic ? (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" />
+              Creating workspace…
+            </p>
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="size-3" />
+              Created {formatDate(workspace.createdAt)}
+            </p>
+          )}
         </div>
       </Card>
 

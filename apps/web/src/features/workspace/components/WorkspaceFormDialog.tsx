@@ -110,7 +110,9 @@ export function WorkspaceFormDialog(props: WorkspaceFormDialogProps) {
             </Button>
             <Button type="submit" disabled={isPending}>
               {isPending
-                ? 'Saving…'
+                ? props.mode === 'create'
+                  ? 'Creating workspace…'
+                  : 'Saving…'
                 : props.mode === 'create'
                   ? 'Create workspace'
                   : 'Save changes'}
