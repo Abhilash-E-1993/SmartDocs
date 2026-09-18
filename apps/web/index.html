@@ -23,6 +23,24 @@
         if (dark) document.documentElement.classList.add('dark')
       } catch (error) {}
     </script>
+    <script>
+      // Wake the API (Render free-tier cold start) from the very first byte,
+      // before the JS bundle downloads, so the cold start overlaps the user
+      // reading the landing page / signing in. Best-effort: never throws.
+      ;(function () {
+        try {
+          var apiUrl = window.__SMARTDOCS_API_URL__
+          if (!apiUrl) return
+          window.__SMARTDOCS_WARMUP_FIRED_AT__ = Date.now()
+          fetch(apiUrl.replace(/\/+$/, '') + '/health', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'omit',
+            mode: 'cors',
+          }).catch(function () {})
+        } catch (error) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
