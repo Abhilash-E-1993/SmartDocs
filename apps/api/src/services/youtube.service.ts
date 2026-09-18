@@ -36,6 +36,36 @@ function decodeEntities(text: string): string {
     .replace(/&gt;/g, '>')
 }
 
+/** Maps a youtube-transcript failure to a clear, actionable user message. */
+function describeTranscriptError(error: unknown): string {
+  // The library's error instances keep `.name === "Error"`; the discriminator
+  // is the class name, read from the constructor.
+  const className =
+    error && typeof error === 'object'
+      ? ((error as { constructor?: { name?: unknown } }).constructor?.name as
+          | string
+          | undefined)
+      : undefined
+  // Serialized errors (e.g. surfaced through Inngest) lose their class identity,
+  // so fall back to matching the message text.
+  const message = error instanceof Error ? error.message : ''
+  switch (true) {
+    case className === 'YoutubeTranscriptTooManyRequestError' ||
+      message.includes('too many requests'):
+      return 'YouTube temporarily rate-limited the transcript request — please retry in a few minutes'
+    case className === 'YoutubeTranscriptVideoUnavailableError' ||
+      message.includes('no longer available'):
+      return 'This YouTube video is unavailable (private, deleted, or region-locked)'
+    case className === 'YoutubeTranscriptDisabledError' ||
+      message.includes('Transcript is disabled'):
+      return 'Captions are disabled for this video, so there is no transcript to import'
+    case className === 'YoutubeTranscriptNotAvailableLanguageError':
+      return 'No transcript is available in a supported language for this video'
+    default:
+      return 'No transcript is available for this video'
+  }
+}
+
 async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
   const videoId = extractVideoId(url)
   if (!videoId) {
@@ -43,17 +73,17 @@ async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
   }
 
   // Long videos make YouTube's transcript endpoint flaky — transient network
-  // failures are retried with backoff; permanent ones (transcripts disabled,
-  // unavailable video) still fail fast.
+  // failures and IP rate-limiting are retried with backoff; permanent ones
+  // (captions disabled, unavailable video) still fail fast.
   let segments
   try {
     segments = await withRetry(() => YoutubeTranscript.fetchTranscript(url), {
-      attempts: 3,
+      attempts: 4,
       label: 'youtube-transcript',
     })
   } catch (error) {
     logger.warn({ err: error, videoId }, 'YouTube transcript fetch failed')
-    throw new Error('No transcript is available for this video', { cause: error })
+    throw new Error(describeTranscriptError(error), { cause: error })
   }
 
   if (segments.length === 0) {

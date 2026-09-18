@@ -13,6 +13,7 @@ import { DeleteSourceDialog } from '@/features/sources/components/DeleteSourceDi
 import { useRetrySource } from '@/features/sources/hooks/useRetrySource'
 import {
   ACTIVE_SOURCE_STATUSES,
+  isStuckSource,
   SOURCE_STATUS_META,
   SOURCE_TYPE_META,
 } from '@/features/sources/utils/source-meta'
@@ -33,6 +34,11 @@ export function SourceListItem({ source, onOpenDetails }: SourceListItemProps) {
   const statusMeta = SOURCE_STATUS_META[source.status]
   const TypeIcon = typeMeta.icon
   const isActive = ACTIVE_SOURCE_STATUSES.includes(source.status)
+  // Retry is offered for failed sources, plus any source stuck in an active
+  // status past the freshness window (its run died — server restart / queue
+  // outage). The backend re-validates staleness before re-queuing, so this
+  // never double-runs a live job.
+  const canRetry = source.status === 'FAILED' || isStuckSource(source)
 
   return (
     <>
@@ -67,6 +73,11 @@ export function SourceListItem({ source, onOpenDetails }: SourceListItemProps) {
               {formatDate(source.createdAt)}
             </span>
           </span>
+          {source.status === 'FAILED' && source.errorMessage ? (
+            <span className="mt-0.5 block truncate text-xs text-destructive/90">
+              {source.errorMessage}
+            </span>
+          ) : null}
           {isActive ? (
             <span
               role="progressbar"
@@ -84,7 +95,7 @@ export function SourceListItem({ source, onOpenDetails }: SourceListItemProps) {
           ) : null}
         </span>
 
-        {source.status === 'FAILED' ? <FailedRetry source={source} /> : null}
+        {canRetry ? <FailedRetry source={source} /> : null}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

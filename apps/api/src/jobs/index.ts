@@ -1,3 +1,4 @@
+import { failStaleSourcesJob } from './fail-stale-sources.job'
 import { processPdfJob } from './process-pdf.job'
 import { processTextJob } from './process-text.job'
 import { processWebsiteJob } from './process-website.job'
@@ -8,4 +9,5 @@ export const inngestFunctions = [
   processWebsiteJob,
   processYoutubeJob,
   processTextJob,
+  failStaleSourcesJob,
 ]

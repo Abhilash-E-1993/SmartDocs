@@ -6,7 +6,7 @@ import { youtubeService } from '../../services/youtube.service'
 import { ApiError } from '../../utils/api-error'
 import type { TextChunk } from '../../utils/chunk-text'
 import { workspaceService } from '../workspace/service'
-import { SourceModel, type SourceDocument, type SourceType } from './Source'
+import { SourceModel, type SourceDocument, type SourceStatus, type SourceType } from './Source'
 import { SourceChunkModel, type SourceChunkDocument } from './SourceChunk'
 
 const PROCESS_EVENTS: Record<SourceType, string> = {
@@ -203,15 +203,55 @@ async function deleteForOwner(id: string, ownerId: string): Promise<void> {
   }
 }
 
+// A source sitting in a started-but-active status longer than this is
+// considered stuck (its Inngest run died or the queue went down) and is safe
+// to retry. QUEUED is intentionally excluded: a queued job is reliably picked
+// up by Inngest and may simply be waiting for a concurrency slot, so only
+// states where work has actually begun (and should be making progress) are
+// treated as stuck.
+const STALE_PROCESSING_MS = 15 * 60 * 1000
+const STUCK_STATUSES: SourceStatus[] = ['UPLOADING', 'PROCESSING', 'INDEXING']
+
+function isStuck(source: SourceDocument): boolean {
+  if (!STUCK_STATUSES.includes(source.status)) {
+    return false
+  }
+  const reference = source.processingStartedAt ?? source.updatedAt
+  return Date.now() - new Date(reference).getTime() > STALE_PROCESSING_MS
+}
+
 async function retryForOwner(id: string, ownerId: string): Promise<SourceDocument> {
   const source = await getByIdForOwner(id, ownerId)
-  if (source.status !== 'FAILED') {
-    throw ApiError.badRequest('Only failed sources can be retried')
+  const canRetry = source.status === 'FAILED' || isStuck(source)
+  if (!canRetry) {
+    throw ApiError.badRequest('This source is already being processed')
   }
 
   source.errorMessage = undefined
   source.failedAt = undefined
   return queueSource(source)
+}
+
+/**
+ * Watchdog: marks sources stuck in a started-but-active status as FAILED so
+ * they become retryable instead of sitting at (e.g.) 10% forever. A live run
+ * keeps `updatedAt` fresh via progress writes, so only genuinely dead runs are
+ * swept. Returns the count.
+ */
+async function failStaleSources(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_PROCESSING_MS)
+  const result = await SourceModel.updateMany(
+    {
+      status: { $in: STUCK_STATUSES },
+      updatedAt: { $lt: cutoff },
+    },
+    {
+      status: 'FAILED',
+      errorMessage: 'Processing was interrupted — please retry',
+      failedAt: new Date(),
+    },
+  )
+  return result.modifiedCount
 }
 
 async function markProcessing(id: string): Promise<void> {
@@ -325,6 +365,7 @@ export const sourceService = {
   renameForOwner,
   deleteForOwner,
   retryForOwner,
+  failStaleSources,
   markProcessing,
   markIndexing,
   markReady,

@@ -16,8 +16,31 @@ const RETRYABLE_NETWORK_CODES = new Set([
   'UND_ERR_CONNECT_TIMEOUT',
 ])
 
+// The youtube-transcript library signals YouTube's IP rate-limiting with this
+// error class. Its instances do NOT override `.name` (it stays "Error"), so we
+// match on `constructor.name` instead. These are transient and must be retried
+// — rate-limiting is the most common reason a YouTube source fails.
+const RETRYABLE_ERROR_NAMES = new Set([
+  'YoutubeTranscriptTooManyRequestError',
+  'YoutubeTranscriptNotAvailableError',
+])
+
+/** The distinguishing class name of an error instance (constructor.name, then .name). */
+function errorClassName(error: object): string | undefined {
+  const ctorName = (error as { constructor?: { name?: unknown } }).constructor?.name
+  if (typeof ctorName === 'string' && ctorName && ctorName !== 'Error') {
+    return ctorName
+  }
+  const name = (error as { name?: unknown }).name
+  return typeof name === 'string' ? name : undefined
+}
+
 /** True for transient failures worth retrying: HTTP 408/409/429/5xx and network errors. */
 function isRetryable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
   const status = (error as { status?: unknown })?.status
   if (typeof status === 'number') {
     return status === 408 || status === 409 || status === 429 || status >= 500
@@ -25,6 +48,12 @@ function isRetryable(error: unknown): boolean {
 
   const code = (error as { code?: unknown })?.code
   if (typeof code === 'string' && RETRYABLE_NETWORK_CODES.has(code)) {
+    return true
+  }
+
+  // Library-specific transient errors identified by class name (no status/code).
+  const className = errorClassName(error)
+  if (className && RETRYABLE_ERROR_NAMES.has(className)) {
     return true
   }
 
