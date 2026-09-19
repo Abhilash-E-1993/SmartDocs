@@ -17,11 +17,24 @@ const VIDEO_ID_PATTERNS = [
   /(?:youtu\.be\/)([\w-]{11})/,
   /(?:youtube\.com\/shorts\/)([\w-]{11})/,
   /(?:youtube\.com\/embed\/)([\w-]{11})/,
+  /(?:youtube\.com\/live\/)([\w-]{11})/,
+  /(?:youtube\.com\/v\/)([\w-]{11})/,
 ]
 
 function extractVideoId(url: string): string | null {
+  const trimmed = url.trim()
+  try {
+    const parsed = new URL(trimmed)
+    const v = parsed.searchParams.get('v')
+    if (v && /^[\w-]{11}$/.test(v)) {
+      return v
+    }
+  } catch {
+    // Ignore URL parse error and fall back to regexes
+  }
+
   for (const pattern of VIDEO_ID_PATTERNS) {
-    const match = pattern.exec(url)
+    const match = pattern.exec(trimmed)
     if (match) {
       return match[1]
     }
@@ -29,6 +42,7 @@ function extractVideoId(url: string): string | null {
 
   return null
 }
+
 
 function decodeEntities(text: string): string {
   return text
@@ -109,30 +123,75 @@ function trackUrl(track: CaptionTrack): string | undefined {
   return track.baseUrl ?? track.base_url
 }
 
-/** Extracts plain text from YouTube timedtext XML (both v2 <text> and v3 <s> formats). */
+/**
+ * Extracts plain text from YouTube timedtext XML.
+ * Supports:
+ * - Format 3: paragraphs <p ...>...</p> (both plain text and auto-generated with <s> word tags)
+ * - Format 1 & 2: lines <text ...>...</text>
+ * - Word-level fallback: <s ...>...</s>
+ */
 function parseTimedText(xml: string): string {
-  // format=3: words are inside <s>…</s> within <p> paragraphs (auto-generated).
+  // Format 3: paragraphs enclosed in <p ...>...</p>
+  const paragraphs = [...xml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)]
+  if (paragraphs.length > 0) {
+    const text = paragraphs
+      .map((m) => {
+        // Strip any inner markup such as <s>, <font>, <b>, etc.
+        const clean = m[1].replace(/<[^>]+>/g, '')
+        return decodeEntities(clean).trim()
+      })
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (text) {
+      return text
+    }
+  }
+
+  // Format 1 or 2: caption lines enclosed in <text ...>...</text>
+  const textNodes = [...xml.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+  if (textNodes.length > 0) {
+    const text = textNodes
+      .map((m) => {
+        const clean = m[1].replace(/<[^>]+>/g, '')
+        return decodeEntities(clean).trim()
+      })
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (text) {
+      return text
+    }
+  }
+
+  // Word-level fallback: <s>...</s> tags
   const words = [...xml.matchAll(/<s\b[^>]*>([\s\S]*?)<\/s>/g)].map((m) => decodeEntities(m[1]))
   if (words.length > 0) {
     return words.join(' ').replace(/\s+/g, ' ').trim()
   }
-  // format=2: caption lines are <text>…</text>.
-  const lines = [...xml.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) => decodeEntities(m[1]))
-  return lines.join(' ').replace(/\s+/g, ' ').trim()
+
+  return ''
 }
 
 /**
  * Primary extractor: YouTube's internal InnerTube player API with a mobile
- * (ANDROID) client context. Unlike the watch-page HTML scrape, this keeps
+ * (ANDROID or IOS) client context. Unlike the watch-page HTML scrape, this keeps
  * working from cloud/datacenter IPs that YouTube bot-detects.
  */
-async function fetchViaInnerTube(videoId: string): Promise<string> {
+async function fetchViaInnerTube(
+  videoId: string,
+  client: 'ANDROID' | 'IOS' = 'ANDROID',
+): Promise<string> {
   const yt = await getInnertube()
   const doFetch = youtubeFetch()
 
   const player = (await yt.actions.execute('/player', {
     videoId,
-    client: 'ANDROID',
+    client,
     parse: false,
   })) as { data?: { playabilityStatus?: { status?: string } } & Record<string, unknown> }
 
@@ -154,7 +213,13 @@ async function fetchViaInnerTube(videoId: string): Promise<string> {
     throw new Error('CAPTIONS_DISABLED')
   }
 
-  const xml = await (await doFetch(base)).text()
+  const res = await doFetch(base)
+  if (!res.ok) {
+    throw new Error(`Failed to fetch caption data: HTTP ${res.status}`)
+  }
+
+
+  const xml = await res.text()
   const text = parseTimedText(xml)
   if (!text) {
     throw new Error('No transcript is available for this video')
@@ -162,13 +227,15 @@ async function fetchViaInnerTube(videoId: string): Promise<string> {
   return text
 }
 
-/** Fallback extractor: the classic watch-page scrape (fast when the IP is clean). */
+/** Fallback extractor: the classic watch-page scrape (fast when the IP is clean or proxy is used). */
 async function fetchViaScraper(url: string): Promise<string> {
-  const segments = await YoutubeTranscript.fetchTranscript(url)
+  const segments = await YoutubeTranscript.fetchTranscript(url, {
+    fetch: youtubeFetch() as unknown as typeof fetch,
+  })
   return decodeEntities(segments.map((segment) => segment.text).join(' '))
 }
 
-/** Maps a youtube-transcript failure to a clear, actionable user message. */
+/** Maps a transcript failure to a clear, actionable user message. */
 function describeTranscriptError(error: unknown): string {
   // The library's error instances keep `.name === "Error"`; the discriminator
   // is the class name, read from the constructor.
@@ -185,8 +252,10 @@ function describeTranscriptError(error: unknown): string {
     case message === 'CAPTIONS_DISABLED':
       return 'Captions are disabled for this video, so there is no transcript to import'
     case className === 'YoutubeTranscriptTooManyRequestError' ||
-      message.includes('too many requests'):
+      message.includes('too many requests') ||
+      message.includes('429'):
       return 'YouTube temporarily rate-limited the transcript request — please retry in a few minutes'
+
     case className === 'YoutubeTranscriptVideoUnavailableError' ||
       message.includes('no longer available') ||
       message.includes('unplayable'):
@@ -196,6 +265,8 @@ function describeTranscriptError(error: unknown): string {
       return 'Captions are disabled for this video, so there is no transcript to import'
     case className === 'YoutubeTranscriptNotAvailableLanguageError':
       return 'No transcript is available in a supported language for this video'
+    case message.includes('YouTube player reported the video as'):
+      return message
     default:
       return 'No transcript is available for this video'
   }
@@ -207,33 +278,57 @@ async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
     throw ApiError.badRequest('Invalid YouTube URL')
   }
 
-  // Strategy: try the InnerTube player API (mobile client) first — it survives
-  // the datacenter-IP bot detection that breaks the watch-page scrape. If that
-  // fails, fall back to the lightweight scraper. Transient failures are retried
-  // with backoff; permanent ones (captions disabled) fail fast.
+  // Strategy:
+  // 1. Try InnerTube with ANDROID client context (survives datacenter bot-checks).
+  // 2. If that fails (and is not permanently CAPTIONS_DISABLED), try InnerTube with IOS context.
+  // 3. If both fail, fall back to watch-page scraper (works when clean IP or proxy available).
   try {
-    const text = await withRetry(() => fetchViaInnerTube(videoId), {
-      attempts: 3,
-      label: 'youtube-innertube',
+    const text = await withRetry(() => fetchViaInnerTube(videoId, 'ANDROID'), {
+      attempts: 2,
+      label: 'youtube-innertube-android',
     })
     return { videoId, text }
   } catch (primaryError) {
+    if (primaryError instanceof Error && primaryError.message === 'CAPTIONS_DISABLED') {
+      throw new Error(describeTranscriptError(primaryError), { cause: primaryError })
+    }
+
     logger.warn(
       { err: primaryError, videoId },
-      'InnerTube transcript fetch failed, trying the scraper fallback',
+      'InnerTube ANDROID transcript fetch failed, trying IOS fallback',
     )
 
     try {
-      const text = await withRetry(() => fetchViaScraper(url), {
-        attempts: 3,
-        label: 'youtube-transcript',
+      const text = await withRetry(() => fetchViaInnerTube(videoId, 'IOS'), {
+        attempts: 2,
+        label: 'youtube-innertube-ios',
       })
       return { videoId, text }
-    } catch (fallbackError) {
-      logger.warn({ err: fallbackError, videoId }, 'YouTube transcript fetch failed')
-      throw new Error(describeTranscriptError(fallbackError), { cause: fallbackError })
+    } catch (iosError) {
+      if (iosError instanceof Error && iosError.message === 'CAPTIONS_DISABLED') {
+        throw new Error(describeTranscriptError(iosError), { cause: iosError })
+      }
+
+      logger.warn(
+        { err: iosError, videoId },
+        'InnerTube IOS transcript fetch failed, trying scraper fallback',
+      )
+
+      try {
+        const text = await withRetry(() => fetchViaScraper(url), {
+          attempts: 2,
+          label: 'youtube-transcript',
+        })
+        return { videoId, text }
+      } catch (fallbackError) {
+        logger.warn({ err: fallbackError, videoId }, 'YouTube transcript fetch failed')
+        throw new Error(describeTranscriptError(fallbackError || primaryError), {
+          cause: fallbackError,
+        })
+      }
     }
   }
 }
+
 
 export const youtubeService = { extractVideoId, getTranscript }

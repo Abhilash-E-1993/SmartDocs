@@ -24,11 +24,33 @@ interface Env {
 }
 
 // Comma-separated list of frontend origins allowed by CORS
-// (e.g. "https://app.vercel.app,https://staging.vercel.app" in production).
-const clientUrls = (process.env.CLIENT_URL ?? 'http://localhost:5173')
+// (e.g. "https://app.vercel.app,https://smartdocshub.online" in production).
+const rawClientUrls = (process.env.CLIENT_URL ?? 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim().replace(/\/$/, ''))
   .filter(Boolean)
+
+const clientUrlsSet = new Set<string>(rawClientUrls)
+for (const rawUrl of rawClientUrls) {
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.hostname.startsWith('www.')) {
+      parsed.hostname = parsed.hostname.slice(4)
+      clientUrlsSet.add(parsed.origin)
+    } else if (
+      parsed.hostname.includes('.') &&
+      !parsed.hostname.startsWith('localhost') &&
+      !/^\d+\.\d+\.\d+\.\d+$/.test(parsed.hostname)
+    ) {
+      parsed.hostname = `www.${parsed.hostname}`
+      clientUrlsSet.add(parsed.origin)
+    }
+  } catch {
+    // Ignore invalid URL
+  }
+}
+const clientUrls = Array.from(clientUrlsSet)
+
 
 export const env: Env = {
   NODE_ENV: process.env.NODE_ENV ?? 'development',
