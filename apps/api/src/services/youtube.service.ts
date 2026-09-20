@@ -1,3 +1,4 @@
+
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import { ClientType, Innertube } from 'youtubei.js'
 import { YoutubeTranscript } from 'youtube-transcript'
@@ -23,18 +24,21 @@ const VIDEO_ID_PATTERNS = [
 
 function extractVideoId(url: string): string | null {
   const trimmed = url.trim()
+
   try {
     const parsed = new URL(trimmed)
     const v = parsed.searchParams.get('v')
+
     if (v && /^[\w-]{11}$/.test(v)) {
       return v
     }
   } catch {
-    // Ignore URL parse error and fall back to regexes
+    // Ignore URL parse error and fall back to regexes.
   }
 
   for (const pattern of VIDEO_ID_PATTERNS) {
     const match = pattern.exec(trimmed)
+
     if (match) {
       return match[1]
     }
@@ -53,37 +57,48 @@ function decodeEntities(text: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sentinels                                                                   */
+/* Sentinels                                                                  */
 /* -------------------------------------------------------------------------- */
 
 const CAPTIONS_DISABLED = 'CAPTIONS_DISABLED'
 const IP_BLOCKED = 'IP_BLOCKED'
+const YOUTUBE_HTTP_403 = 'YOUTUBE_HTTP_403'
+const YOUTUBE_HTTP_429 = 'YOUTUBE_HTTP_429'
 
 /* -------------------------------------------------------------------------- */
-/* Networking                                                                  */
+/* Networking                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/**
- * fetch used only for YouTube calls. When YOUTUBE_PROXY_URL is set, requests
- * are routed through that HTTP proxy (bypasses datacenter-IP blocks); otherwise
- * the global fetch is used.
- */
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+type FetchLike = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>
 
-// Build the proxy agent once. Creating a ProxyAgent per request leaks sockets.
 let proxyAgent: ProxyAgent | null | undefined
 
 function getProxyAgent(): ProxyAgent | null {
   if (proxyAgent === undefined) {
-    proxyAgent = env.YOUTUBE_PROXY_URL ? new ProxyAgent(env.YOUTUBE_PROXY_URL) : null
+    proxyAgent = env.YOUTUBE_PROXY_URL
+      ? new ProxyAgent(env.YOUTUBE_PROXY_URL)
+      : null
+
     if (proxyAgent) {
-      logger.info('YouTube requests are routed through YOUTUBE_PROXY_URL')
+      logger.info(
+        {
+          proxyConfigured: true,
+        },
+        'YouTube requests are routed through YOUTUBE_PROXY_URL',
+      )
     } else {
       logger.warn(
-        'YOUTUBE_PROXY_URL is not set — YouTube may block transcript requests from this IP',
+        {
+          proxyConfigured: false,
+        },
+        'YOUTUBE_PROXY_URL is not set — YouTube requests use the Render server IP',
       )
     }
   }
+
   return proxyAgent
 }
 
@@ -95,6 +110,7 @@ function youtubeFetch(): FetchLike {
   }
 
   const agent = getProxyAgent()
+
   cachedFetch = agent
     ? (input, init) =>
         undiciFetch(input as string, {
@@ -107,18 +123,161 @@ function youtubeFetch(): FetchLike {
 }
 
 /* -------------------------------------------------------------------------- */
-/* InnerTube session                                                           */
+/* Error diagnostics                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Convert any unknown error into a useful string.
+ *
+ * Important because:
+ * - normal Error objects have message/stack
+ * - youtubei.js errors may expose statusCode/status
+ * - Inngest serialization can remove class information
+ */
+function getErrorDetails(error: unknown): {
+  message: string
+  name: string
+  status?: number
+  stack?: string
+} {
+  if (error instanceof Error) {
+    const candidate = error as Error & {
+      status?: number
+      statusCode?: number
+      response?: {
+        status?: number
+      }
+    }
+
+    return {
+      message: error.message || 'Unknown error',
+      name: error.name || error.constructor?.name || 'Error',
+      status:
+        candidate.status ??
+        candidate.statusCode ??
+        candidate.response?.status,
+      stack: error.stack,
+    }
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const value = error as Record<string, unknown>
+
+    return {
+      message: String(value.message ?? value.error ?? 'Unknown error'),
+      name: String(value.name ?? 'UnknownError'),
+      status:
+        typeof value.status === 'number'
+          ? value.status
+          : typeof value.statusCode === 'number'
+            ? value.statusCode
+            : undefined,
+    }
+  }
+
+  return {
+    message: String(error),
+    name: 'UnknownError',
+  }
+}
+
+/**
+ * Extract HTTP status from youtubei.js / fetch style errors.
+ *
+ * youtubei.js may put the status directly in the message:
+ *
+ * "Request to ... failed with status code 403"
+ */
+function getHttpStatus(error: unknown): number | undefined {
+  const details = getErrorDetails(error)
+
+  if (details.status) {
+    return details.status
+  }
+
+  const match = details.message.match(
+    /status code\s+(\d{3})/i,
+  )
+
+  if (match) {
+    return Number(match[1])
+  }
+
+  const httpMatch = details.message.match(
+    /\bHTTP\s+(\d{3})\b/i,
+  )
+
+  if (httpMatch) {
+    return Number(httpMatch[1])
+  }
+
+  return undefined
+}
+
+/**
+ * Convert a raw error into a stable internal category.
+ *
+ * IMPORTANT:
+ * 403 is NOT automatically called IP_BLOCKED.
+ * It is classified as YOUTUBE_HTTP_403 so we don't claim
+ * something that the response itself doesn't prove.
+ */
+function classifyYoutubeError(error: unknown): string {
+  const details = getErrorDetails(error)
+  const message = details.message
+  const status = getHttpStatus(error)
+
+  if (message === IP_BLOCKED) {
+    return IP_BLOCKED
+  }
+
+  if (
+    /not a bot|sign in to confirm|login_required/i.test(message)
+  ) {
+    return IP_BLOCKED
+  }
+
+  if (status === 403) {
+    return YOUTUBE_HTTP_403
+  }
+
+  if (
+    status === 429 ||
+    /too many requests|\b429\b/i.test(message)
+  ) {
+    return YOUTUBE_HTTP_429
+  }
+
+  if (
+    message === CAPTIONS_DISABLED ||
+    /transcript is disabled|captions are disabled/i.test(message)
+  ) {
+    return CAPTIONS_DISABLED
+  }
+
+  return 'UNKNOWN'
+}
+
+/**
+ * Create a compact diagnostic representation for logs.
+ */
+function diagnosticError(error: unknown) {
+  const details = getErrorDetails(error)
+
+  return {
+    category: classifyYoutubeError(error),
+    name: details.name,
+    message: details.message,
+    status: getHttpStatus(error),
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* InnerTube session                                                          */
 /* -------------------------------------------------------------------------- */
 
 let innertubePromise: Promise<Innertube> | null = null
 
-/**
- * Shared InnerTube session. A WEB client session issues API calls; the player
- * request itself is re-issued under several client contexts (see
- * PLAYER_CLIENTS), because YouTube has been progressively stripping
- * `captionTracks` from some client responses and blocking others on
- * datacenter IPs.
- */
 function getInnertube(): Promise<Innertube> {
   innertubePromise ??= Innertube.create({
     client_type: ClientType.WEB,
@@ -126,36 +285,52 @@ function getInnertube(): Promise<Innertube> {
     retrieve_player: false,
     fetch: youtubeFetch(),
   })
+
   return innertubePromise
 }
 
-/** Reset the cached session so a transient auth/session failure can recover. */
 function resetInnertube(): void {
   innertubePromise = null
+
+  logger.info(
+    'Reset cached YouTube InnerTube session',
+  )
 }
 
-/**
- * Client contexts tried in order. ANDROID/iOS survive bot checks best but often
- * omit captions now; TV_EMBEDDED / MWEB / WEB still return caption tracks.
- * NOTE: youtubei.js expects the exact string `iOS`, not `IOS`.
- */
-const PLAYER_CLIENTS = ['ANDROID', 'iOS', 'TV_EMBEDDED', 'MWEB', 'WEB'] as const
+/* -------------------------------------------------------------------------- */
+/* Player clients                                                             */
+/* -------------------------------------------------------------------------- */
+
+const PLAYER_CLIENTS = [
+  'ANDROID',
+  'iOS',
+  'TV_EMBEDDED',
+  'MWEB',
+  'WEB',
+] as const
+
 type PlayerClient = (typeof PLAYER_CLIENTS)[number]
 
-/**
- * A matching User-Agent is required. YouTube returns an empty body for
- * timedtext requests that arrive with no (or a non-browser) User-Agent.
- */
 const CLIENT_USER_AGENT: Record<PlayerClient, string> = {
-  ANDROID: 'com.google.android.youtube/19.09.37 (Linux; U; Android 14; en_US) gzip',
-  iOS: 'com.google.ios.youtube/19.09.3 (iPhone16,2; U; CPU iOS 17_1 like Mac OS X; en_US)',
+  ANDROID:
+    'com.google.android.youtube/19.09.37 (Linux; U; Android 14; en_US) gzip',
+
+  iOS:
+    'com.google.ios.youtube/19.09.3 (iPhone16,2; U; CPU iOS 17_1 like Mac OS X; en_US)',
+
   TV_EMBEDDED:
     'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
-  MWEB: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-  WEB: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+
+  MWEB:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+
+  WEB:
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 }
 
-function captionHeaders(client: PlayerClient): Record<string, string> {
+function captionHeaders(
+  client: PlayerClient,
+): Record<string, string> {
   return {
     'User-Agent': CLIENT_USER_AGENT[client],
     'Accept-Language': 'en-US,en;q=0.9',
@@ -166,7 +341,7 @@ function captionHeaders(client: PlayerClient): Record<string, string> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Caption track selection + parsing                                           */
+/* Caption track selection + parsing                                          */
 /* -------------------------------------------------------------------------- */
 
 interface CaptionTrack {
@@ -177,44 +352,64 @@ interface CaptionTrack {
   kind?: string
 }
 
-/** Pull the raw caption track list out of an InnerTube player response. */
-function captionTracksFrom(playerData: unknown): CaptionTrack[] {
+function captionTracksFrom(
+  playerData: unknown,
+): CaptionTrack[] {
   const tracks = (
     playerData as {
-      captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } }
+      captions?: {
+        playerCaptionsTracklistRenderer?: {
+          captionTracks?: CaptionTrack[]
+        }
+      }
     }
   )?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+
   return Array.isArray(tracks) ? tracks : []
 }
 
-function pickTrack(tracks: CaptionTrack[]): CaptionTrack | undefined {
-  // Prefer an English track, then any non-ASR (human) track, else the first.
+function pickTrack(
+  tracks: CaptionTrack[],
+): CaptionTrack | undefined {
   return (
-    tracks.find((t) => (t.languageCode ?? t.language_code)?.startsWith('en')) ??
-    tracks.find((t) => t.kind !== 'asr') ??
+    tracks.find((track) =>
+      (track.languageCode ?? track.language_code)
+        ?.startsWith('en'),
+    ) ??
+    tracks.find((track) => track.kind !== 'asr') ??
     tracks[0]
   )
 }
 
-function trackUrl(track: CaptionTrack): string | undefined {
+function trackUrl(
+  track: CaptionTrack,
+): string | undefined {
   return track.baseUrl ?? track.base_url
 }
 
-/** Append/override a query parameter on a caption URL. */
-function withFormat(base: string, fmt: string): string {
+function withFormat(
+  base: string,
+  fmt: string,
+): string {
   try {
     const url = new URL(base)
     url.searchParams.set('fmt', fmt)
     return url.toString()
   } catch {
-    const sep = base.includes('?') ? '&' : '?'
-    return `${base}${sep}fmt=${fmt}`
+    const separator = base.includes('?') ? '&' : '?'
+    return `${base}${separator}fmt=${fmt}`
   }
 }
 
-/** Parse YouTube's json3 caption format (most reliable format today). */
 function parseJson3(body: string): string {
-  let data: { events?: { segs?: { utf8?: string }[] }[] }
+  let data: {
+    events?: {
+      segs?: {
+        utf8?: string
+      }[]
+    }[]
+  }
+
   try {
     data = JSON.parse(body) as typeof data
   } catch {
@@ -223,27 +418,21 @@ function parseJson3(body: string): string {
 
   return (data.events ?? [])
     .flatMap((event) => event.segs ?? [])
-    .map((seg) => seg.utf8 ?? '')
+    .map((segment) => segment.utf8 ?? '')
     .join('')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-/**
- * Extracts plain text from YouTube timedtext XML.
- * Supports:
- * - Format 3: paragraphs <p ...>...</p> (both plain text and auto-generated with <s> word tags)
- * - Format 1 & 2: lines <text ...>...</text>
- * - Word-level fallback: <s ...>...</s>
- */
 function parseTimedText(xml: string): string {
-  // Format 3: paragraphs enclosed in <p ...>...</p>
-  const paragraphs = [...xml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)]
+  const paragraphs = [
+    ...xml.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g),
+  ]
+
   if (paragraphs.length > 0) {
     const text = paragraphs
-      .map((m) => {
-        // Strip any inner markup such as <s>, <font>, <b>, etc.
-        const clean = m[1].replace(/<[^>]+>/g, '')
+      .map((match) => {
+        const clean = match[1].replace(/<[^>]+>/g, '')
         return decodeEntities(clean).trim()
       })
       .filter(Boolean)
@@ -256,12 +445,16 @@ function parseTimedText(xml: string): string {
     }
   }
 
-  // Format 1 or 2: caption lines enclosed in <text ...>...</text>
-  const textNodes = [...xml.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+  const textNodes = [
+    ...xml.matchAll(
+      /<text\b[^>]*>([\s\S]*?)<\/text>/g,
+    ),
+  ]
+
   if (textNodes.length > 0) {
     const text = textNodes
-      .map((m) => {
-        const clean = m[1].replace(/<[^>]+>/g, '')
+      .map((match) => {
+        const clean = match[1].replace(/<[^>]+>/g, '')
         return decodeEntities(clean).trim()
       })
       .filter(Boolean)
@@ -274,288 +467,686 @@ function parseTimedText(xml: string): string {
     }
   }
 
-  // Word-level fallback: <s>...</s> tags
-  const words = [...xml.matchAll(/<s\b[^>]*>([\s\S]*?)<\/s>/g)].map((m) => decodeEntities(m[1]))
+  const words = [
+    ...xml.matchAll(
+      /<s\b[^>]*>([\s\S]*?)<\/s>/g,
+    ),
+  ].map((match) => decodeEntities(match[1]))
+
   if (words.length > 0) {
-    return words.join(' ').replace(/\s+/g, ' ').trim()
+    return words
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
   }
 
   return ''
 }
 
-/**
- * Download one caption track. Tries json3 first, then srv3, then the bare URL,
- * because YouTube now returns empty bodies for some format/URL combinations.
- */
-async function downloadCaptions(base: string, client: PlayerClient): Promise<string> {
+/* -------------------------------------------------------------------------- */
+/* Caption downloading                                                        */
+/* -------------------------------------------------------------------------- */
+
+async function downloadCaptions(
+  base: string,
+  client: PlayerClient,
+): Promise<string> {
   const doFetch = youtubeFetch()
   const headers = captionHeaders(client)
-  const attempts: { url: string; parse: (body: string) => string }[] = [
-    { url: withFormat(base, 'json3'), parse: parseJson3 },
-    { url: withFormat(base, 'srv3'), parse: parseTimedText },
-    { url: base, parse: parseTimedText },
+
+  const attempts: {
+    format: string
+    url: string
+    parse: (body: string) => string
+  }[] = [
+    {
+      format: 'json3',
+      url: withFormat(base, 'json3'),
+      parse: parseJson3,
+    },
+    {
+      format: 'srv3',
+      url: withFormat(base, 'srv3'),
+      parse: parseTimedText,
+    },
+    {
+      format: 'raw',
+      url: base,
+      parse: parseTimedText,
+    },
   ]
 
   let lastStatus = 0
+  let lastError: unknown = null
+
   for (const attempt of attempts) {
-    let res: Response
+    let response: Response
+
     try {
-      res = await doFetch(attempt.url, { headers })
-    } catch (err) {
-      logger.debug({ err, client }, 'Caption download request failed')
+      response = await doFetch(attempt.url, {
+        headers,
+      })
+    } catch (error) {
+      lastError = error
+
+      logger.warn(
+        {
+          client,
+          format: attempt.format,
+          error: diagnosticError(error),
+        },
+        'YouTube caption request threw an exception',
+      )
+
       continue
     }
 
-    lastStatus = res.status
-    if (!res.ok) {
+    lastStatus = response.status
+
+    logger.info(
+      {
+        client,
+        format: attempt.format,
+        status: response.status,
+        ok: response.ok,
+      },
+      'YouTube caption request completed',
+    )
+
+    if (!response.ok) {
+      lastError = new Error(
+        `Caption request failed with HTTP ${response.status}`,
+      )
+
       continue
     }
 
-    const body = await res.text()
+    const body = await response.text()
+
     if (!body.trim()) {
+      lastError = new Error(
+        'Caption endpoint returned an empty body',
+      )
+
       continue
     }
 
     const text = attempt.parse(body)
+
     if (text) {
       return text
     }
+
+    lastError = new Error(
+      `Caption ${attempt.format} response could not be parsed`,
+    )
+  }
+
+  if (lastStatus === 403) {
+    throw new Error(
+      `YouTube caption request returned HTTP 403`,
+      {
+        cause: lastError,
+      },
+    )
+  }
+
+  if (lastStatus === 429) {
+    throw new Error(
+      `YouTube caption request returned HTTP 429`,
+      {
+        cause: lastError,
+      },
+    )
   }
 
   throw new Error(
-    lastStatus && lastStatus !== 200
+    lastStatus
       ? `Failed to fetch caption data: HTTP ${lastStatus}`
       : 'Caption track returned no usable text',
+    {
+      cause: lastError ?? undefined,
+    },
   )
 }
 
 /* -------------------------------------------------------------------------- */
-/* Extraction strategies                                                       */
+/* Extraction strategies                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Primary extractor: YouTube's internal InnerTube player API. Unlike the
- * watch-page HTML scrape, this keeps working from cloud/datacenter IPs that
- * YouTube bot-detects — provided the client context is one YouTube still
- * serves caption tracks to.
- */
-async function fetchViaInnerTube(videoId: string, client: PlayerClient): Promise<string> {
+async function fetchViaInnerTube(
+  videoId: string,
+  client: PlayerClient,
+): Promise<string> {
   const yt = await getInnertube()
 
-  const player = (await yt.actions.execute('/player', {
-    videoId,
-    client,
-    parse: false,
-  } as Record<string, unknown>)) as {
-    data?: {
-      playabilityStatus?: { status?: string; reason?: string }
-    } & Record<string, unknown>
-  }
+  logger.info(
+    {
+      videoId,
+      client,
+      proxyConfigured: Boolean(
+        env.YOUTUBE_PROXY_URL,
+      ),
+    },
+    'Starting YouTube InnerTube transcript attempt',
+  )
 
-  const data = player?.data
-  const playability = data?.playabilityStatus?.status
-  const reason = data?.playabilityStatus?.reason ?? ''
+  try {
+    const player = (await yt.actions.execute(
+      '/player',
+      {
+        videoId,
+        client,
+        parse: false,
+      } as Record<string, unknown>,
+    )) as {
+      data?: {
+        playabilityStatus?: {
+          status?: string
+          reason?: string
+        }
+      } & Record<string, unknown>
+    }
 
-  if (
-    playability === 'LOGIN_REQUIRED' ||
-    /not a bot|sign in to confirm/i.test(reason)
-  ) {
-    throw new Error(IP_BLOCKED)
-  }
+    const data = player?.data
 
-  if (playability && playability !== 'OK' && playability !== 'LIVE_STREAM_OFFLINE') {
-    throw new Error(
-      `YouTube player reported the video as ${playability.toLowerCase().replace(/_/g, ' ')}`,
+    const playability =
+      data?.playabilityStatus?.status
+
+    const reason =
+      data?.playabilityStatus?.reason ?? ''
+
+    logger.info(
+      {
+        videoId,
+        client,
+        playability,
+        reason,
+      },
+      'YouTube InnerTube player response received',
     )
-  }
 
-  const tracks = captionTracksFrom(data)
-  if (tracks.length === 0) {
-    // NOTE: an empty list here is ambiguous — it can mean captions are really
-    // off, OR that this client context simply no longer returns them. The
-    // caller must try the remaining clients before trusting it.
-    throw new Error(CAPTIONS_DISABLED)
-  }
+    if (
+      playability === 'LOGIN_REQUIRED' ||
+      /not a bot|sign in to confirm/i.test(reason)
+    ) {
+      const error = new Error(
+        `${IP_BLOCKED}: YouTube returned LOGIN_REQUIRED. Reason: ${reason || 'none provided'}`,
+      )
 
-  const track = pickTrack(tracks)
-  const base = track ? trackUrl(track) : undefined
-  if (!base) {
-    throw new Error(CAPTIONS_DISABLED)
-  }
+      throw error
+    }
 
-  return downloadCaptions(base, client)
+    if (
+      playability &&
+      playability !== 'OK' &&
+      playability !== 'LIVE_STREAM_OFFLINE'
+    ) {
+      throw new Error(
+        `YouTube player reported the video as ${playability.toLowerCase().replace(/_/g, ' ')}`,
+      )
+    }
+
+    const tracks = captionTracksFrom(data)
+
+    logger.info(
+      {
+        videoId,
+        client,
+        captionTrackCount: tracks.length,
+        captionLanguages: tracks.map(
+          (track) =>
+            track.languageCode ??
+            track.language_code ??
+            'unknown',
+        ),
+      },
+      'YouTube caption tracks inspected',
+    )
+
+    if (tracks.length === 0) {
+      throw new Error(CAPTIONS_DISABLED)
+    }
+
+    const track = pickTrack(tracks)
+    const base = track ? trackUrl(track) : undefined
+
+    if (!base) {
+      throw new Error(CAPTIONS_DISABLED)
+    }
+
+    return await downloadCaptions(base, client)
+  } catch (error) {
+    logger.error(
+      {
+        videoId,
+        client,
+        error: diagnosticError(error),
+      },
+      'YouTube InnerTube attempt failed',
+    )
+
+    throw error
+  }
 }
 
-/**
- * Secondary extractor: the transcript panel endpoint (the "Show transcript"
- * button). It does not rely on signed timedtext URLs, so it often works when
- * the caption tracks above come back empty.
- */
-async function fetchViaTranscriptPanel(videoId: string): Promise<string> {
+async function fetchViaTranscriptPanel(
+  videoId: string,
+): Promise<string> {
   const yt = await getInnertube()
-  const info = (await yt.getInfo(videoId)) as unknown as {
-    getTranscript?: () => Promise<unknown>
-  }
 
-  if (typeof info?.getTranscript !== 'function') {
-    throw new Error('Transcript panel is not supported by this youtubei.js version')
-  }
+  logger.info(
+    { videoId },
+    'Starting YouTube transcript panel attempt',
+  )
 
-  const panel = (await info.getTranscript()) as {
-    transcript?: {
-      content?: {
-        body?: { initial_segments?: { snippet?: { text?: string } }[] }
+  try {
+    const info = (await yt.getInfo(
+      videoId,
+    )) as unknown as {
+      getTranscript?: () => Promise<unknown>
+    }
+
+    if (
+      typeof info?.getTranscript !== 'function'
+    ) {
+      throw new Error(
+        'Transcript panel is not supported by this youtubei.js version',
+      )
+    }
+
+    const panel = (await info.getTranscript()) as {
+      transcript?: {
+        content?: {
+          body?: {
+            initial_segments?: {
+              snippet?: {
+                text?: string
+              }
+            }[]
+          }
+        }
       }
     }
+
+    const segments =
+      panel?.transcript?.content?.body
+        ?.initial_segments ?? []
+
+    const text = segments
+      .map(
+        (segment) =>
+          segment?.snippet?.text ?? '',
+      )
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!text) {
+      throw new Error(CAPTIONS_DISABLED)
+    }
+
+    return decodeEntities(text)
+  } catch (error) {
+    logger.error(
+      {
+        videoId,
+        error: diagnosticError(error),
+      },
+      'YouTube transcript panel attempt failed',
+    )
+
+    throw error
   }
-
-  const segments = panel?.transcript?.content?.body?.initial_segments ?? []
-  const text = segments
-    .map((segment) => segment?.snippet?.text ?? '')
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!text) {
-    throw new Error(CAPTIONS_DISABLED)
-  }
-
-  return decodeEntities(text)
 }
 
-/** Final fallback: the classic watch-page scrape (works on a clean IP or via proxy). */
-async function fetchViaScraper(url: string): Promise<string> {
-  const segments = await YoutubeTranscript.fetchTranscript(url, {
-    fetch: youtubeFetch() as unknown as typeof fetch,
-  })
-  return decodeEntities(segments.map((segment) => segment.text).join(' '))
+async function fetchViaScraper(
+  url: string,
+): Promise<string> {
+  logger.info(
+    {
+      url,
+      proxyConfigured: Boolean(
+        env.YOUTUBE_PROXY_URL,
+      ),
+    },
+    'Starting YouTube watch-page scraper attempt',
+  )
+
+  try {
+    const segments =
+      await YoutubeTranscript.fetchTranscript(
+        url,
+        {
+          fetch:
+            youtubeFetch() as unknown as typeof fetch,
+        },
+      )
+
+    const text = decodeEntities(
+      segments
+        .map((segment) => segment.text)
+        .join(' '),
+    )
+
+    if (!text.trim()) {
+      throw new Error(
+        'YouTube scraper returned an empty transcript',
+      )
+    }
+
+    return text
+  } catch (error) {
+    logger.error(
+      {
+        url,
+        error: diagnosticError(error),
+      },
+      'YouTube scraper attempt failed',
+    )
+
+    throw error
+  }
 }
 
 /* -------------------------------------------------------------------------- */
-/* Error mapping                                                               */
+/* Error mapping                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Maps a transcript failure to a clear, actionable user message. */
-function describeTranscriptError(error: unknown): string {
-  // The library's error instances keep `.name === "Error"`; the discriminator
-  // is the class name, read from the constructor.
-  const className =
-    error && typeof error === 'object'
-      ? ((error as { constructor?: { name?: unknown } }).constructor?.name as string | undefined)
-      : undefined
-  // Serialized errors (e.g. surfaced through Inngest) lose their class identity,
-  // so fall back to matching the message text.
-  const message = error instanceof Error ? error.message : ''
+function describeTranscriptError(
+  error: unknown,
+): string {
+  const details = getErrorDetails(error)
+  const message = details.message
+  const category = classifyYoutubeError(error)
 
-  switch (true) {
-    case message === CAPTIONS_DISABLED:
-      return 'Captions are disabled for this video, so there is no transcript to import'
-    case message === IP_BLOCKED ||
-      message.includes('not a bot') ||
-      message.includes('Sign in to confirm'):
-      return 'YouTube is currently blocking requests from this server. Please try again later.'
-    case className === 'YoutubeTranscriptTooManyRequestError' ||
-      message.includes('too many requests') ||
-      message.includes('429'):
-      return 'YouTube temporarily rate-limited the transcript request — please retry in a few minutes'
-    case className === 'YoutubeTranscriptVideoUnavailableError' ||
-      message.includes('no longer available') ||
-      message.includes('unplayable'):
-      return 'This YouTube video is unavailable (private, deleted, or region-locked)'
-    case className === 'YoutubeTranscriptDisabledError' ||
-      message.includes('Transcript is disabled'):
-      return 'Captions are disabled for this video, so there is no transcript to import'
-    case className === 'YoutubeTranscriptNotAvailableLanguageError':
-      return 'No transcript is available in a supported language for this video'
-    case message.includes('YouTube player reported the video as'):
-      return message
+  switch (category) {
+    case CAPTIONS_DISABLED:
+      return 'Captions are disabled or no caption tracks were returned for this video.'
+
+    case IP_BLOCKED:
+      return `YouTube rejected this server request as a bot/login challenge. Original error: ${message}`
+
+    case YOUTUBE_HTTP_403:
+      return `YouTube rejected the request with HTTP 403 Forbidden. Original error: ${message}`
+
+    case YOUTUBE_HTTP_429:
+      return `YouTube rate-limited the request with HTTP 429. Original error: ${message}`
+
     default:
-      return 'No transcript is available for this video'
+      break
   }
+
+  if (
+    /no longer available|unplayable/i.test(
+      message,
+    )
+  ) {
+    return `This YouTube video appears to be unavailable. Original error: ${message}`
+  }
+
+  if (
+    /YoutubeTranscriptNotAvailableLanguageError/i.test(
+      details.name,
+    )
+  ) {
+    return `No transcript is available in a supported language. Original error: ${message}`
+  }
+
+  if (
+    /Transcript is disabled/i.test(message)
+  ) {
+    return `Captions are disabled for this video. Original error: ${message}`
+  }
+
+  return `YouTube transcript extraction failed. Original error: ${message}`
 }
 
-/** Picks the most informative error out of everything that was tried. */
-function mostInformative(errors: unknown[]): unknown {
-  const messageOf = (e: unknown) => (e instanceof Error ? e.message : '')
+/**
+ * Select the most useful error.
+ *
+ * Priority:
+ * 1. Explicit bot/login block
+ * 2. HTTP 403
+ * 3. HTTP 429
+ * 4. Video unavailable
+ * 5. Captions disabled
+ * 6. First error
+ */
+function mostInformative(
+  errors: unknown[],
+): unknown {
+  const categoryOf = (error: unknown) =>
+    classifyYoutubeError(error)
 
   return (
-    errors.find((e) => messageOf(e) === IP_BLOCKED) ??
-    errors.find((e) => /429|too many requests/i.test(messageOf(e))) ??
-    errors.find((e) => /unavailable|no longer available|unplayable|reported the video as/i.test(messageOf(e))) ??
-    errors.find((e) => messageOf(e) === CAPTIONS_DISABLED) ??
+    errors.find(
+      (error) =>
+        categoryOf(error) === IP_BLOCKED,
+    ) ??
+    errors.find(
+      (error) =>
+        categoryOf(error) === YOUTUBE_HTTP_403,
+    ) ??
+    errors.find(
+      (error) =>
+        categoryOf(error) === YOUTUBE_HTTP_429,
+    ) ??
+    errors.find(
+      (error) =>
+        /unavailable|no longer available|unplayable|reported the video as/i.test(
+          getErrorDetails(error).message,
+        ),
+    ) ??
+    errors.find(
+      (error) =>
+        categoryOf(error) === CAPTIONS_DISABLED,
+    ) ??
     errors[0]
   )
 }
 
 /* -------------------------------------------------------------------------- */
-/* Public API                                                                  */
+/* Public API                                                                 */
 /* -------------------------------------------------------------------------- */
 
-async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
+async function getTranscript(
+  url: string,
+): Promise<YoutubeTranscriptResult> {
   const videoId = extractVideoId(url)
+
   if (!videoId) {
-    throw ApiError.badRequest('Invalid YouTube URL')
+    throw ApiError.badRequest(
+      'Invalid YouTube URL',
+    )
   }
 
   const errors: unknown[] = []
 
-  // 1. InnerTube player, across every client context that may still expose
-  //    caption tracks. A CAPTIONS_DISABLED from one client is NOT conclusive.
+  logger.info(
+    {
+      videoId,
+      proxyConfigured: Boolean(
+        env.YOUTUBE_PROXY_URL,
+      ),
+    },
+    'Starting YouTube transcript extraction',
+  )
+
+  /* ---------------------------------------------------------------------- */
+  /* 1. InnerTube                                                           */
+  /* ---------------------------------------------------------------------- */
+
   for (const client of PLAYER_CLIENTS) {
     try {
-      const text = await withRetry(() => fetchViaInnerTube(videoId, client), {
-        attempts: 1,
-        label: `youtube-innertube-${client.toLowerCase()}`,
-      })
-      return { videoId, text }
-    } catch (err) {
-      errors.push(err)
-      logger.warn(
-        { err, videoId, client },
-        'InnerTube transcript fetch failed, trying next strategy',
+      const text = await withRetry(
+        () =>
+          fetchViaInnerTube(
+            videoId,
+            client,
+          ),
+        {
+          attempts: 1,
+          label: `youtube-innertube-${client.toLowerCase()}`,
+        },
       )
-      if (err instanceof Error && err.message === IP_BLOCKED) {
-        // Session may be poisoned; rebuild it before the next attempt.
+
+      logger.info(
+        {
+          videoId,
+          client,
+          textLength: text.length,
+        },
+        'YouTube transcript extracted successfully via InnerTube',
+      )
+
+      return {
+        videoId,
+        text,
+      }
+    } catch (error) {
+      errors.push(error)
+
+      logger.warn(
+        {
+          videoId,
+          client,
+          error: diagnosticError(error),
+        },
+        'InnerTube transcript fetch failed; trying next client',
+      )
+
+      const category =
+        classifyYoutubeError(error)
+
+      if (
+        category === IP_BLOCKED ||
+        category === YOUTUBE_HTTP_403
+      ) {
+        /*
+         * Rebuild the InnerTube session after a server-side
+         * rejection. This preserves your existing recovery behavior.
+         */
         resetInnertube()
       }
     }
   }
 
-  // 2. Transcript panel endpoint.
+  /* ---------------------------------------------------------------------- */
+  /* 2. Transcript panel                                                    */
+  /* ---------------------------------------------------------------------- */
+
   try {
-    const text = await withRetry(() => fetchViaTranscriptPanel(videoId), {
-      attempts: 2,
-      label: 'youtube-transcript-panel',
-    })
-    return { videoId, text }
-  } catch (err) {
-    errors.push(err)
-    logger.warn({ err, videoId }, 'Transcript panel fetch failed, trying scraper fallback')
+    const text = await withRetry(
+      () =>
+        fetchViaTranscriptPanel(
+          videoId,
+        ),
+      {
+        attempts: 2,
+        label: 'youtube-transcript-panel',
+      },
+    )
+
+    logger.info(
+      {
+        videoId,
+        textLength: text.length,
+      },
+      'YouTube transcript extracted successfully via transcript panel',
+    )
+
+    return {
+      videoId,
+      text,
+    }
+  } catch (error) {
+    errors.push(error)
+
+    logger.warn(
+      {
+        videoId,
+        error: diagnosticError(error),
+      },
+      'Transcript panel failed; trying scraper fallback',
+    )
   }
 
-  // 3. Watch-page scrape.
+  /* ---------------------------------------------------------------------- */
+  /* 3. Watch-page scraper                                                  */
+  /* ---------------------------------------------------------------------- */
+
   try {
-    const text = await withRetry(() => fetchViaScraper(url), {
-      attempts: 2,
-      label: 'youtube-transcript',
-    })
-    return { videoId, text }
-  } catch (err) {
-    errors.push(err)
+    const text = await withRetry(
+      () =>
+        fetchViaScraper(url),
+      {
+        attempts: 2,
+        label: 'youtube-transcript',
+      },
+    )
+
+    logger.info(
+      {
+        videoId,
+        textLength: text.length,
+      },
+      'YouTube transcript extracted successfully via scraper',
+    )
+
+    return {
+      videoId,
+      text,
+    }
+  } catch (error) {
+    errors.push(error)
+
+    logger.warn(
+      {
+        videoId,
+        error: diagnosticError(error),
+      },
+      'YouTube scraper failed',
+    )
   }
+
+  /* ---------------------------------------------------------------------- */
+  /* Final diagnostics                                                       */
+  /* ---------------------------------------------------------------------- */
 
   const chosen = mostInformative(errors)
+
+  const attempts = errors.map(
+    (error, index) => ({
+      attempt: index + 1,
+      ...diagnosticError(error),
+    }),
+  )
+
   logger.error(
     {
       videoId,
-      proxyConfigured: Boolean(env.YOUTUBE_PROXY_URL),
-      attempts: errors.map((e) => (e instanceof Error ? e.message : String(e))),
+      proxyConfigured: Boolean(
+        env.YOUTUBE_PROXY_URL,
+      ),
+      totalAttempts: errors.length,
+      selectedError: diagnosticError(chosen),
+      attempts,
     },
-    'All YouTube transcript strategies failed',
+    'ALL YouTube transcript strategies failed',
   )
 
-  throw new Error(describeTranscriptError(chosen), { cause: chosen })
+  throw new Error(
+    describeTranscriptError(chosen),
+    {
+      cause: chosen,
+    },
+  )
 }
 
-export const youtubeService = { extractVideoId, getTranscript }
+export const youtubeService = {
+  extractVideoId,
+  getTranscript,
+}
+
