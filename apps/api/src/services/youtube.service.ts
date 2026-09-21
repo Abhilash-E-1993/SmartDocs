@@ -1,5 +1,3 @@
-import { fetchTranscript } from 'youtube-transcript'
-
 import { env } from '../config/env'
 import { logger } from '../config/logger'
 import { ApiError } from '../utils/api-error'
@@ -9,40 +7,74 @@ interface YoutubeTranscriptResult {
   text: string
 }
 
-const VIDEO_ID_PATTERNS = [
-  /(?:youtube\.com\/watch\?[^#]*v=)([\w-]{11})/,
-  /(?:youtu\.be\/)([\w-]{11})/,
-  /(?:youtube\.com\/shorts\/)([\w-]{11})/,
-  /(?:youtube\.com\/embed\/)([\w-]{11})/,
-  /(?:youtube\.com\/live\/)([\w-]{11})/,
-  /(?:youtube\.com\/v\/)([\w-]{11})/,
-]
+interface SupadataTranscriptResponse {
+  lang?: string
+  availableLangs?: string[]
+  content?: string | Array<{
+    text?: string
+    offset?: number
+    duration?: number
+  }>
+  error?: string
+  message?: string
+  details?: string
+}
 
+const SUPADATA_URL = 'https://api.supadata.ai/v1/transcript'
+
+const REQUEST_TIMEOUT_MS = 30_000
+
+/**
+ * Extract YouTube video ID from common YouTube URL formats.
+ */
 function extractVideoId(url: string): string | null {
   const trimmed = url.trim()
 
   try {
     const parsed = new URL(trimmed)
-    const v = parsed.searchParams.get('v')
 
-    if (v && /^[\w-]{11}$/.test(v)) {
-      return v
+    // youtube.com/watch?v=VIDEO_ID
+    if (
+      parsed.hostname === 'youtube.com' ||
+      parsed.hostname === 'www.youtube.com' ||
+      parsed.hostname === 'm.youtube.com'
+    ) {
+      const videoId = parsed.searchParams.get('v')
+
+      if (videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+        return videoId
+      }
+
+      // /shorts/VIDEO_ID
+      // /embed/VIDEO_ID
+      // /live/VIDEO_ID
+      const pathMatch = parsed.pathname.match(
+        /^\/(?:shorts|embed|live|v)\/([A-Za-z0-9_-]{11})/,
+      )
+
+      if (pathMatch) {
+        return pathMatch[1]
+      }
+    }
+
+    // youtu.be/VIDEO_ID
+    if (parsed.hostname === 'youtu.be') {
+      const videoId = parsed.pathname.split('/')[1]
+
+      if (videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+        return videoId
+      }
     }
   } catch {
-    // Ignore URL parse error and fall back to regexes.
-  }
-
-  for (const pattern of VIDEO_ID_PATTERNS) {
-    const match = pattern.exec(trimmed)
-
-    if (match) {
-      return match[1]
-    }
+    return null
   }
 
   return null
 }
 
+/**
+ * Decode common HTML entities returned by transcript providers.
+ */
 function decodeEntities(text: string): string {
   return text
     .replace(/&amp;/g, '&')
@@ -50,177 +82,200 @@ function decodeEntities(text: string): string {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&#x([0-9A-Fa-f]+);/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCharCode(parseInt(dec, 10)))
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-// ─── Provider 1: Supadata ─────────────────────────────────────────────────────
-
-async function fetchFromSupadata(videoId: string): Promise<string> {
-  if (!env.SUPADATA_API_KEY) {
-    throw new Error('SUPADATA_API_KEY is not configured — skipping Supadata')
-  }
-
-  const SUPADATA_BASE_URL = 'https://api.supadata.ai/v1/youtube/transcript'
-  const url = `${SUPADATA_BASE_URL}?videoId=${encodeURIComponent(videoId)}&text=true`
-
-  const response = await fetch(url, {
-    headers: { 'x-api-key': env.SUPADATA_API_KEY },
-    signal: AbortSignal.timeout(15_000),
-  })
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '')
-
-    // Detect when Supadata is suspended or returning HTML instead of JSON
-    if (
-      body.includes('Service Suspended') ||
-      body.startsWith('<!DOCTYPE') ||
-      body.startsWith('<html')
-    ) {
-      throw new Error(`Supadata service is unavailable (HTTP ${response.status}, returned HTML)`)
-    }
-
-    throw new Error(`Supadata HTTP ${response.status}: ${body.slice(0, 200)}`)
-  }
-
-  const contentType = response.headers.get('content-type') ?? ''
-  if (contentType.includes('text/html')) {
-    const body = await response.text().catch(() => '')
-    throw new Error(`Supadata returned HTML instead of JSON — service may be suspended: ${body.slice(0, 100)}`)
-  }
-
-  const data = (await response.json()) as { content?: string; error?: string }
-
-  if (!data.content) {
-    throw new Error(data.error ?? 'Supadata returned no transcript content')
-  }
-
-  return decodeEntities(data.content).replace(/\s+/g, ' ').trim()
-}
-
-// ─── Provider 2: youtube-transcript npm package ───────────────────────────────
-
-async function fetchFromYoutubeTranscript(videoId: string): Promise<string> {
-  // This package fetches directly from YouTube's internal caption API
-  const segments = await fetchTranscript(videoId)
-
-  if (!segments || segments.length === 0) {
-    throw new Error(`No transcript segments found for video ${videoId}`)
-  }
-
-  const text = segments
-    .map((seg) => decodeEntities((seg.text ?? '').trim()))
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!text) {
-    throw new Error('youtube-transcript: empty transcript after joining segments')
-  }
-
-  return text
-}
-
-// ─── Provider 3: youtubei.js (Google InnerTube API) ───────────────────────────
-
-async function fetchFromYoutubei(videoId: string): Promise<string> {
-  // Dynamic import — youtubei.js is a pure ESM package
-  const { Innertube } = await import('youtubei.js')
-  const yt = await Innertube.create({ generate_session_locally: true })
-  const info = await yt.getInfo(videoId)
-
-  const transcriptData = await info.getTranscript()
-  const segments =
-    (transcriptData?.transcript?.content?.body?.initial_segments as Array<{
-      snippet?: { text?: string }
-    }>) ?? []
-
-  if (segments.length === 0) {
-    throw new Error(`youtubei.js: no transcript segments found for video ${videoId}`)
-  }
-
-  const text = segments
-    .map((seg) => decodeEntities((seg.snippet?.text ?? '').trim()))
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!text) {
-    throw new Error('youtubei.js: empty transcript after joining segments')
-  }
-
-  return text
-}
-
-// ─── Orchestrator: try providers in order, return first success ───────────────
-
-type Provider = { name: string; fetch: () => Promise<string> }
-
-async function tryProviders(videoId: string, providers: Provider[]): Promise<string> {
-  const errors: string[] = []
-
-  for (const provider of providers) {
-    let lastErr: unknown
-
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const text = await provider.fetch()
-
-        logger.info(
-          { videoId, provider: provider.name, textLength: text.length },
-          'YouTube transcript fetched successfully',
-        )
-
-        return text
-      } catch (err) {
-        lastErr = err
-        if (attempt < 2) {
-          await sleep(1500)
-        }
-      }
-    }
-
-    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
-    logger.warn(
-      { videoId, provider: provider.name, error: msg },
-      `Provider ${provider.name} failed after retries — trying next`,
+    .replace(
+      /&#x([0-9A-Fa-f]+);/g,
+      (_, hex: string) => String.fromCharCode(parseInt(hex, 16)),
     )
-    errors.push(`[${provider.name}] ${msg}`)
-  }
-
-  throw new Error(
-    `Could not fetch a transcript for this video. It may not have captions, or it may be private/unavailable.\n\nDetails:\n${errors.join('\n')}`,
-  )
+    .replace(
+      /&#(\d+);/g,
+      (_, dec: string) => String.fromCharCode(parseInt(dec, 10)),
+    )
 }
 
-async function getTranscript(url: string): Promise<YoutubeTranscriptResult> {
-  const videoId = extractVideoId(url)
+/**
+ * Convert Supadata content into plain text.
+ *
+ * Supadata can return either a string or an array of transcript segments.
+ */
+function normalizeTranscript(
+  content: SupadataTranscriptResponse['content'],
+): string {
+  if (!content) {
+    return ''
+  }
+
+  if (typeof content === 'string') {
+    return decodeEntities(content)
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((segment) => segment.text ?? '')
+      .map((text) => decodeEntities(text))
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  return ''
+}
+
+/**
+ * Fetch a YouTube transcript using Supadata.
+ *
+ * This service intentionally uses only one provider.
+ * If Supadata fails, the exact provider error is surfaced.
+ */
+async function fetchTranscript(
+  youtubeUrl: string,
+): Promise<YoutubeTranscriptResult> {
+  if (!env.SUPADATA_API_KEY) {
+    throw new Error(
+      'SUPADATA_API_KEY is missing. Add SUPADATA_API_KEY to the Render environment variables.',
+    )
+  }
+
+  const videoId = extractVideoId(youtubeUrl)
 
   if (!videoId) {
-    throw ApiError.badRequest('Invalid YouTube URL')
+    throw ApiError.badRequest(
+      'Invalid YouTube URL. Please provide a valid YouTube video URL.',
+    )
   }
 
   logger.info(
-    { videoId },
-    'Fetching YouTube transcript — trying Supadata → youtube-transcript → youtubei.js',
+    {
+      videoId,
+    },
+    'Fetching YouTube transcript from Supadata',
   )
 
-  const providers: Provider[] = [
-    { name: 'supadata', fetch: () => fetchFromSupadata(videoId) },
-    { name: 'youtube-transcript', fetch: () => fetchFromYoutubeTranscript(videoId) },
-    { name: 'youtubei', fetch: () => fetchFromYoutubei(videoId) },
-  ]
+  const controller = new AbortController()
 
-  const text = await tryProviders(videoId, providers)
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
 
-  return { videoId, text }
+  try {
+    const params = new URLSearchParams({
+      url: youtubeUrl,
+      text: 'true',
+      lang: 'en',
+    })
+
+    const requestUrl = `${SUPADATA_URL}?${params.toString()}`
+
+    const response = await fetch(requestUrl, {
+      method: 'GET',
+
+      headers: {
+        'x-api-key': env.SUPADATA_API_KEY,
+        Accept: 'application/json',
+      },
+
+      signal: controller.signal,
+    })
+
+    const contentType = response.headers.get('content-type') ?? ''
+
+    const rawBody = await response.text()
+
+    let data: SupadataTranscriptResponse = {}
+
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody) as SupadataTranscriptResponse
+      } catch {
+        // Keep data empty so we can report the raw response below.
+      }
+    }
+
+    if (!response.ok) {
+      const providerMessage =
+        data.message ||
+        data.error ||
+        data.details ||
+        rawBody.slice(0, 500) ||
+        'No response body'
+
+      logger.error(
+        {
+          videoId,
+          status: response.status,
+          statusText: response.statusText,
+          contentType,
+          providerMessage,
+        },
+        'Supadata transcript request failed',
+      )
+
+      throw new Error(
+        `Supadata transcript request failed: HTTP ${response.status} ${response.statusText}. ${providerMessage}`,
+      )
+    }
+
+    const text = normalizeTranscript(data.content)
+
+    if (!text) {
+      logger.error(
+        {
+          videoId,
+          status: response.status,
+          contentType,
+          availableLanguages: data.availableLangs,
+          rawResponse: rawBody.slice(0, 500),
+        },
+        'Supadata returned a successful response but no transcript content',
+      )
+
+      throw new Error(
+        `Supadata returned no transcript content for video ${videoId}. ` +
+          `Available languages: ${data.availableLangs?.join(', ') || 'unknown'}`,
+      )
+    }
+
+    logger.info(
+      {
+        videoId,
+        language: data.lang,
+        textLength: text.length,
+      },
+      'YouTube transcript fetched successfully',
+    )
+
+    return {
+      videoId,
+      text,
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      logger.error(
+        {
+          videoId,
+          timeoutMs: REQUEST_TIMEOUT_MS,
+        },
+        'Supadata transcript request timed out',
+      )
+
+      throw new Error(
+        `Supadata transcript request timed out after ${REQUEST_TIMEOUT_MS / 1000}s for video ${videoId}.`,
+      )
+    }
+
+    if (error instanceof Error) {
+      throw error
+    }
+
+    throw new Error(`Unknown Supadata error: ${String(error)}`)
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
-export const youtubeService = { extractVideoId, getTranscript }
+export const youtubeService = {
+  extractVideoId,
+  fetchTranscript,
+}
