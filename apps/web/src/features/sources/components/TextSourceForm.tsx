@@ -36,7 +36,7 @@ export function TextSourceForm({ kind, workspaceId, onDone }: TextSourceFormProp
   })
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <div className="space-y-2">
         <Label htmlFor={`${kind}-title`}>Title</Label>
         <Input
@@ -54,9 +54,14 @@ export function TextSourceForm({ kind, workspaceId, onDone }: TextSourceFormProp
         <Label htmlFor={`${kind}-content`}>Content</Label>
         <Textarea
           id={`${kind}-content`}
-          rows={8}
           placeholder={kind === 'markdown' ? '# Paste markdown here…' : 'Paste or write text here…'}
-          className={cn('resize-none', kind === 'markdown' && 'font-mono text-xs')}
+          // Use a fixed min/max height instead of field-sizing-content so the
+          // textarea never overflows the dialog — users can still resize vertically.
+          className={cn(
+            'min-h-[140px] max-h-[320px] resize-y overflow-y-auto',
+            kind === 'markdown' && 'font-mono text-xs',
+          )}
+          style={{ fieldSizing: 'fixed' }}
           {...form.register('content')}
         />
         {form.formState.errors.content ? (
@@ -64,7 +69,7 @@ export function TextSourceForm({ kind, workspaceId, onDone }: TextSourceFormProp
         ) : null}
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end pt-1">
         <Button type="submit" disabled={createSource.isPending}>
           {createSource.isPending ? 'Adding…' : 'Add source'}
         </Button>
