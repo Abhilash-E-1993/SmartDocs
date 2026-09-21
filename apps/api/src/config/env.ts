@@ -21,6 +21,7 @@ interface Env {
   MEM0_API_KEY: string | undefined
   /** Optional HTTP proxy used only for YouTube transcript calls (bypasses datacenter IP blocks). */
   YOUTUBE_PROXY_URL: string | undefined
+  SUPADATA_API_KEY: string | undefined
 }
 
 // Comma-separated list of frontend origins allowed by CORS
@@ -70,4 +71,5 @@ export const env: Env = {
   PINECONE_INDEX_NAME: process.env.PINECONE_INDEX_NAME ?? 'smartdocs',
   MEM0_API_KEY: process.env.MEM0_API_KEY,
   YOUTUBE_PROXY_URL: process.env.YOUTUBE_PROXY_URL,
+  SUPADATA_API_KEY: process.env.SUPADATA_API_KEY,
 }
