@@ -24,21 +24,25 @@ function toStorageError(error: unknown): ApiError {
 async function uploadPdf(buffer: Buffer, publicId: string): Promise<UploadedPdf> {
   assertConfigured()
 
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { resource_type: 'raw', folder: 'smartdocs', public_id: publicId, format: 'pdf' },
-      (error, result) => {
-        if (error || !result) {
-          reject(toStorageError(error ?? new Error('Cloudinary upload failed')))
-          return
-        }
+  return withRetry(
+    () =>
+      new Promise<UploadedPdf>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { resource_type: 'raw', folder: 'smartdocs', public_id: publicId, format: 'pdf' },
+          (error, result) => {
+            if (error || !result) {
+              reject(toStorageError(error ?? new Error('Cloudinary upload failed')))
+              return
+            }
 
-        resolve({ url: result.secure_url, publicId: result.public_id, bytes: result.bytes })
-      },
-    )
+            resolve({ url: result.secure_url, publicId: result.public_id, bytes: result.bytes })
+          },
+        )
 
-    stream.end(buffer)
-  })
+        stream.end(buffer)
+      }),
+    { attempts: 3, label: 'cloudinary-upload' },
+  )
 }
 
 function httpError(message: string, status: number): Error {

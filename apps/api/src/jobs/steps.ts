@@ -155,12 +155,17 @@ export async function prepareSourceChunks(
   // Contextual enrichment: one situating sentence per chunk, embedded together
   // with the chunk — substantially improves retrieval precision (contextual
   // retrieval), especially for transcripts without sentence punctuation.
-  const contexts = await openaiService.generateChunkContexts(
-    source.title,
-    source.sourceType,
-    textChunks.map((chunk) => chunk.content),
-    (done, total) => void sourceService.setProgress(sourceId, 30 + (35 * done) / total),
-  )
+  // Documents with 1-2 chunks are already self-contained, so we skip the extra
+  // LLM call to save 1.5-2.5s while preserving retrieval accuracy.
+  const contexts =
+    textChunks.length <= 2
+      ? textChunks.map(() => '')
+      : await openaiService.generateChunkContexts(
+          source.title,
+          source.sourceType,
+          textChunks.map((chunk) => chunk.content),
+          (done, total) => void sourceService.setProgress(sourceId, 30 + (35 * done) / total),
+        )
   const enrichedChunks = textChunks.map((chunk, index) => ({
     ...chunk,
     contextSummary: contexts[index] || undefined,

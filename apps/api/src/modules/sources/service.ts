@@ -1,6 +1,7 @@
 import { logger } from '../../config/logger'
 import { inngest } from '../../jobs/client'
 import { cloudinaryService } from '../../services/cloudinary.service'
+import { pdfService } from '../../services/pdf.service'
 import { pineconeService } from '../../services/pinecone.service'
 import { youtubeService } from '../../services/youtube.service'
 import { ApiError } from '../../utils/api-error'
@@ -91,26 +92,64 @@ async function createPdfSource(
 ): Promise<SourceDocument> {
   await assertWorkspaceOwnership(workspaceId, ownerId)
 
+  // 1. Fast in-memory text extraction (<300ms) directly from the uploaded buffer
+  let extracted: { text: string; pageCount: number }
+  try {
+    extracted = await pdfService.extractText(file.buffer)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid PDF file'
+    logger.warn({ err: error, fileName: file.originalname }, 'Failed to parse uploaded PDF')
+    throw ApiError.badRequest(message)
+  }
+
+  const cleanedText = extracted.text.trim()
+  if (cleanedText.length < 10) {
+    throw ApiError.badRequest(
+      'Not enough extractable text could be found in this PDF. Scanned documents or image-only PDFs without OCR are not supported.',
+    )
+  }
+
+  // 2. Create the source record with rawContent ready for instant indexing
   const source = await SourceModel.create({
     workspaceId,
     ownerId,
     sourceType: 'pdf',
     title: title?.trim() || file.originalname.replace(/\.pdf$/i, '') || 'PDF document',
-    status: 'UPLOADING',
-    metadata: { fileSizeBytes: file.size },
+    status: 'QUEUED',
+    progress: 5,
+    rawContent: cleanedText,
+    metadata: {
+      fileSizeBytes: file.size,
+      pageCount: extracted.pageCount,
+    },
+    queuedAt: new Date(),
   })
 
-  try {
-    const uploaded = await cloudinaryService.uploadPdf(file.buffer, source._id.toString())
-    source.cloudinaryUrl = uploaded.url
-    source.cloudinaryPublicId = uploaded.publicId
-    source.metadata.fileSizeBytes = uploaded.bytes
-  } catch (error) {
-    await SourceModel.deleteOne({ _id: source._id })
-    throw error
-  }
+  // 3. Upload to Cloudinary in the background (non-blocking for HTTP response)
+  // This stores the raw PDF file for viewing/downloading in the frontend without slowing down upload.
+  void (async () => {
+    try {
+      const uploaded = await cloudinaryService.uploadPdf(file.buffer, source._id.toString())
+      const updated = await SourceModel.findByIdAndUpdate(source._id, {
+        cloudinaryUrl: uploaded.url,
+        cloudinaryPublicId: uploaded.publicId,
+        'metadata.fileSizeBytes': uploaded.bytes,
+      })
+      if (!updated) {
+        // Source was deleted while upload was in flight
+        await cloudinaryService.deletePdf(uploaded.publicId)
+      }
+    } catch (error) {
+      logger.warn(
+        { err: error, sourceId: source._id.toString() },
+        'Background Cloudinary upload failed for PDF source',
+      )
+    }
+  })()
 
-  return queueSource(source)
+  // 4. Dispatch processing immediately and return HTTP response in ~300ms
+  await dispatchProcessing(source)
+  return source
 }
 
 async function createTextSource(

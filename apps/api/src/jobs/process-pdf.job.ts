@@ -30,6 +30,10 @@ export const processPdfJob = inngest.createFunction(
 
     const cleaned = await step.run('extract-and-clean', async () => {
       const source = await sourceService.getById(sourceId)
+      if (source.rawContent) {
+        return normalizeText(source.rawContent)
+      }
+
       if (!source.cloudinaryUrl) {
         throw new Error('The uploaded PDF file is missing')
       }
@@ -43,8 +47,10 @@ export const processPdfJob = inngest.createFunction(
     // Indexing is split into durable steps — a failed run resumes at the
     // failed step instead of redoing the whole (possibly long) pipeline.
     await step.run('index-chunks', () => prepareSourceChunks(sourceId, cleaned))
-    await step.run('index-vectors', () => vectorizeSource(sourceId))
-    await step.run('label-topic', () => labelSource(sourceId, cleaned))
+    await Promise.all([
+      step.run('index-vectors', () => vectorizeSource(sourceId)),
+      step.run('label-topic', () => labelSource(sourceId, cleaned)),
+    ])
 
     return step.run('mark-ready', () => completeSource(sourceId))
   },
