@@ -29,4 +29,27 @@ async function extractText(buffer: Buffer): Promise<PdfExtraction> {
   }
 }
 
-export const pdfService = { extractText }
+export const pdfService = { extractText, warmup }
+
+/**
+ * Smallest valid single-page PDF — just enough to make pdf.js boot its
+ * parser, worker and font machinery without any real content.
+ */
+const WARMUP_PDF = Buffer.from(
+  '%PDF-1.4\n' +
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n' +
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n' +
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n' +
+    'trailer\n<< /Root 1 0 R >>\n%%EOF',
+  'latin1',
+)
+
+/**
+ * Initializes the pdf.js engine at server startup. Without this, the first
+ * PDF uploaded after a (re)start pays the multi-second engine cold start
+ * inside the user's request; later uploads reuse the warm engine.
+ * Never throws — even a failed parse has already loaded the engine.
+ */
+async function warmup(): Promise<void> {
+  await extractText(WARMUP_PDF).catch(() => undefined)
+}

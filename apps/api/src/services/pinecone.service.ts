@@ -197,4 +197,19 @@ export const pineconeService = {
   queryWorkspace,
   deleteBySource,
   deleteByWorkspace,
+  warmup,
+}
+
+/**
+ * Resolves the Pinecone index (listIndexes + host resolution) at server
+ * startup instead of inside the first indexing job. The index handle is
+ * cached, so later jobs skip this entirely. Never throws.
+ */
+async function warmup(): Promise<void> {
+  if (!isPineconeConfigured()) {
+    return
+  }
+  await getIndex().catch((error: unknown) => {
+    logger.warn({ err: error }, 'Pinecone warmup failed (will retry lazily on first use)')
+  })
 }

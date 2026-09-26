@@ -20,9 +20,12 @@ interface SupadataTranscriptResponse {
   error?: string
   message?: string
   details?: string
+  documentationUrl?: string
 }
 
-const SUPADATA_URL = 'https://api.supadata.ai/v1/transcript'
+// Supadata transcript endpoint — note the /youtube/ segment; the bare
+// /v1/transcript path does not exist and returns HTTP 404.
+const SUPADATA_URL = 'https://api.supadata.ai/v1/youtube/transcript'
 
 const REQUEST_TIMEOUT_MS = 30_000
 
@@ -239,20 +242,30 @@ async function fetchTranscript(
         rawBody.slice(0, 500) ||
         'No response body'
 
+      // Single-line, copy-paste friendly: everything needed to debug the
+      // failure (key validity, quota, region blocks) is in the thrown error.
+      const errorMessage =
+        `Supadata transcript request failed for video ${videoId}: ` +
+        `HTTP ${response.status} ${response.statusText} | ` +
+        `error=${data.error ?? 'none'} | message=${providerMessage}` +
+        (data.documentationUrl ? ` | docs=${data.documentationUrl}` : '')
+
       logger.error(
         {
           videoId,
+          youtubeUrl,
           status: response.status,
           statusText: response.statusText,
           contentType,
+          providerError: data.error,
           providerMessage,
+          documentationUrl: data.documentationUrl,
+          rawBody: rawBody.slice(0, 500),
         },
-        'Supadata transcript request failed',
+        errorMessage,
       )
 
-      throw new Error(
-        `Supadata transcript request failed: HTTP ${response.status} ${response.statusText}. ${providerMessage}`,
-      )
+      throw new Error(errorMessage)
     }
 
     // -------------------------------------------------------

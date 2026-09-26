@@ -34,7 +34,7 @@ export const processYoutubeJob = inngest.createFunction(
         throw new Error('The YouTube URL is missing')
       }
 
-      const { text } = await youtubeService.getTranscript(url)
+      const { text } = await youtubeService.fetchTranscript(url)
       return normalizeText(text)
     })
 
