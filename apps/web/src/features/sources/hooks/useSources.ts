@@ -35,7 +35,20 @@ export function useSource(sourceId: string | undefined, enabled = true) {
     // progress bar animates.
     refetchInterval: (query) => {
       const source = query.state.data
-      return source && ACTIVE_SOURCE_STATUSES.includes(source.status) ? 2000 : false
+      if (!source) {
+        return false
+      }
+      if (ACTIVE_SOURCE_STATUSES.includes(source.status)) {
+        return 2000
+      }
+      // The PDF file upload to storage runs in the background and can finish
+      // after the source is already READY — keep polling until the view link
+      // (cloudinaryUrl) lands so the "View PDF" action appears without
+      // reopening the sheet.
+      if (source.sourceType === 'pdf' && !source.cloudinaryUrl) {
+        return 2000
+      }
+      return false
     },
   })
 }
