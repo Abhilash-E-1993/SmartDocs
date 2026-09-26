@@ -92,24 +92,7 @@ async function createPdfSource(
 ): Promise<SourceDocument> {
   await assertWorkspaceOwnership(workspaceId, ownerId)
 
-  // 1. Fast in-memory text extraction (<300ms) directly from the uploaded buffer
-  let extracted: { text: string; pageCount: number }
-  try {
-    extracted = await pdfService.extractText(file.buffer)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid PDF file'
-    logger.warn({ err: error, fileName: file.originalname }, 'Failed to parse uploaded PDF')
-    throw ApiError.badRequest(message)
-  }
-
-  const cleanedText = extracted.text.trim()
-  if (cleanedText.length < 10) {
-    throw ApiError.badRequest(
-      'Not enough extractable text could be found in this PDF. Scanned documents or image-only PDFs without OCR are not supported.',
-    )
-  }
-
-  // 2. Create the source record with rawContent ready for instant indexing
+  // 1. Create the record and return the HTTP response in ~100ms.
   const source = await SourceModel.create({
     workspaceId,
     ownerId,
@@ -117,39 +100,60 @@ async function createPdfSource(
     title: title?.trim() || file.originalname.replace(/\.pdf$/i, '') || 'PDF document',
     status: 'QUEUED',
     progress: 5,
-    rawContent: cleanedText,
-    metadata: {
-      fileSizeBytes: file.size,
-      pageCount: extracted.pageCount,
-    },
+    metadata: { fileSizeBytes: file.size },
     queuedAt: new Date(),
   })
 
-  // 3. Upload to Cloudinary in the background (non-blocking for HTTP response)
-  // This stores the raw PDF file for viewing/downloading in the frontend without slowing down upload.
-  void (async () => {
-    try {
-      const uploaded = await cloudinaryService.uploadPdf(file.buffer, source._id.toString())
-      const updated = await SourceModel.findByIdAndUpdate(source._id, {
+  // 2. Heavy work (pdf.js extraction + Cloudinary upload) runs after the
+  // response. Parsing inside the request made uploads look frozen — the first
+  // one especially, since a cold pdf.js engine takes seconds on a small CPU.
+  // The job is dispatched only after rawContent is stored, so indexing stays
+  // on the fast path (no Cloudinary download) and never races the file upload.
+  void preparePdfSource(source._id.toString(), file)
+
+  return source
+}
+
+/** Background preparation for a freshly uploaded PDF — see createPdfSource. */
+async function preparePdfSource(sourceId: string, file: UploadedFile): Promise<void> {
+  try {
+    const [extracted, uploaded] = await Promise.all([
+      pdfService.extractText(file.buffer),
+      cloudinaryService.uploadPdf(file.buffer, sourceId),
+    ])
+
+    const cleanedText = extracted.text.trim()
+    if (cleanedText.length < 10) {
+      throw new Error(
+        'Not enough extractable text could be found in this PDF. Scanned documents or image-only PDFs without OCR are not supported.',
+      )
+    }
+
+    const source = await SourceModel.findByIdAndUpdate(
+      sourceId,
+      {
+        rawContent: cleanedText,
         cloudinaryUrl: uploaded.url,
         cloudinaryPublicId: uploaded.publicId,
         'metadata.fileSizeBytes': uploaded.bytes,
-      })
-      if (!updated) {
-        // Source was deleted while upload was in flight
-        await cloudinaryService.deletePdf(uploaded.publicId)
-      }
-    } catch (error) {
-      logger.warn(
-        { err: error, sourceId: source._id.toString() },
-        'Background Cloudinary upload failed for PDF source',
-      )
+        'metadata.pageCount': extracted.pageCount,
+      },
+      { new: true },
+    )
+    if (!source) {
+      // Source was deleted while preparation was in flight — drop the file.
+      await cloudinaryService.deletePdf(uploaded.publicId)
+      return
     }
-  })()
 
-  // 4. Dispatch processing immediately and return HTTP response in ~300ms
-  await dispatchProcessing(source)
-  return source
+    // dispatchProcessing marks the source FAILED itself when the queue is
+    // down — here we only prevent an unhandled rejection.
+    await dispatchProcessing(source).catch(() => undefined)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to prepare the PDF'
+    logger.warn({ err: error, sourceId, fileName: file.originalname }, 'PDF preparation failed')
+    await markFailed(sourceId, message).catch(() => undefined)
+  }
 }
 
 async function createTextSource(
