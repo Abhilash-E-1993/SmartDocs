@@ -17,7 +17,21 @@ function assertConfigured(): void {
 
 function toStorageError(error: unknown): ApiError {
   logger.error({ err: error }, 'Cloudinary PDF upload failed')
-  const detail = error instanceof Error ? error.message : 'unknown error'
+  // Cloudinary rejects with plain objects ({ message, http_code }), not Error
+  // instances — extract everything so logs show the real cause, never
+  // "unknown error".
+  let detail = 'unknown error'
+  if (error instanceof Error) {
+    detail = error.message
+  } else if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>
+    const parts = [record.message, record.http_code ? `HTTP ${record.http_code}` : undefined]
+      .filter(Boolean)
+      .map(String)
+    detail = parts.length > 0 ? parts.join(' | ') : JSON.stringify(error)
+  } else if (error !== undefined && error !== null) {
+    detail = String(error)
+  }
   return new ApiError(502, 'STORAGE_ERROR', `File storage rejected the upload: ${detail}`)
 }
 

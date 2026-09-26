@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { sourcesQueryKey } from '@/features/sources/hooks/useSources'
 import { getErrorMessage } from '@/lib/axios'
 import { sourceService } from '@/services/source.service'
+import type { Source } from '@/types/source'
 
 export interface PdfUploadItem {
   localId: string
@@ -45,10 +46,17 @@ export function usePdfUploads(workspaceId: string) {
     controllersRef.current.set(item.localId, controller)
 
     try {
-      await sourceService.uploadPdf(workspaceId, item.file, undefined, {
+      const source = await sourceService.uploadPdf(workspaceId, item.file, undefined, {
         signal: controller.signal,
         onProgress: (progress) => updateItem(item.localId, { progress }),
       })
+
+      // Seed the list cache with the created source so its card (with the
+      // live processing progress bar) appears the instant the upload bar
+      // finishes — no waiting for the next list refetch.
+      queryClient.setQueryData<Source[]>(sourcesQueryKey(workspaceId), (current) =>
+        current ? [source, ...current] : [source],
+      )
 
       updateItem(item.localId, { status: 'success', progress: 100 })
       toast.success(`"${item.fileName}" uploaded`)

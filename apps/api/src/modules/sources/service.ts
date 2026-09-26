@@ -116,12 +116,11 @@ async function createPdfSource(
 
 /** Background preparation for a freshly uploaded PDF — see createPdfSource. */
 async function preparePdfSource(sourceId: string, file: UploadedFile): Promise<void> {
+  // Critical path = text extraction only. Indexing runs purely from
+  // rawContent, so it never depends on (or waits for) file storage.
+  let source: SourceDocument | null
   try {
-    const [extracted, uploaded] = await Promise.all([
-      pdfService.extractText(file.buffer),
-      cloudinaryService.uploadPdf(file.buffer, sourceId),
-    ])
-
+    const extracted = await pdfService.extractText(file.buffer)
     const cleanedText = extracted.text.trim()
     if (cleanedText.length < 10) {
       throw new Error(
@@ -129,31 +128,49 @@ async function preparePdfSource(sourceId: string, file: UploadedFile): Promise<v
       )
     }
 
-    const source = await SourceModel.findByIdAndUpdate(
+    source = await SourceModel.findByIdAndUpdate(
       sourceId,
       {
         rawContent: cleanedText,
-        cloudinaryUrl: uploaded.url,
-        cloudinaryPublicId: uploaded.publicId,
-        'metadata.fileSizeBytes': uploaded.bytes,
         'metadata.pageCount': extracted.pageCount,
       },
       { new: true },
     )
     if (!source) {
-      // Source was deleted while preparation was in flight — drop the file.
-      await cloudinaryService.deletePdf(uploaded.publicId)
-      return
+      return // Source was deleted while extraction was in flight
     }
-
-    // dispatchProcessing marks the source FAILED itself when the queue is
-    // down — here we only prevent an unhandled rejection.
-    await dispatchProcessing(source).catch(() => undefined)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to prepare the PDF'
-    logger.warn({ err: error, sourceId, fileName: file.originalname }, 'PDF preparation failed')
+    logger.warn({ err: error, sourceId, fileName: file.originalname }, 'PDF extraction failed')
     await markFailed(sourceId, message).catch(() => undefined)
+    return
   }
+
+  // dispatchProcessing marks the source FAILED itself when the queue is
+  // down — here we only prevent an unhandled rejection.
+  await dispatchProcessing(source).catch(() => undefined)
+
+  // Independent and non-fatal: store the raw PDF so it can be viewed or
+  // downloaded later. A storage hiccup must never block or fail indexing.
+  void cloudinaryService
+    .uploadPdf(file.buffer, sourceId)
+    .then(async (uploaded) => {
+      const updated = await SourceModel.findByIdAndUpdate(sourceId, {
+        cloudinaryUrl: uploaded.url,
+        cloudinaryPublicId: uploaded.publicId,
+        'metadata.fileSizeBytes': uploaded.bytes,
+      })
+      if (!updated) {
+        // Source was deleted while the upload was in flight — drop the file.
+        await cloudinaryService.deletePdf(uploaded.publicId)
+      }
+    })
+    .catch((error: unknown) => {
+      logger.warn(
+        { err: error, sourceId },
+        'Background Cloudinary upload failed for PDF source (indexing unaffected)',
+      )
+    })
 }
 
 async function createTextSource(
